@@ -77,7 +77,8 @@ test("no catch copy: the first screen shows only the brand, suggestions and the 
   await page.goto("/");
   await expect(page.getByTestId("composer-input")).toBeVisible();
   await expect(page.locator("h1, h2")).toHaveCount(0);
-  const allowed = new Set<string>([SERVICE.shortName, SERVICE.notice, ...SERVICE.suggestions]);
+  const brand = [SERVICE.shortName, SERVICE.area, `${SERVICE.shortName}${SERVICE.area}`, `${SERVICE.shortName} ${SERVICE.area}`];
+  const allowed = new Set<string>([...brand, SERVICE.notice, ...SERVICE.suggestions]);
   const lines = (await page.locator(".app").innerText())
     .split("\n")
     .map((l) => l.trim())

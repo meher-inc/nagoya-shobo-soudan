@@ -1,3 +1,5 @@
+import type { CityJurisdiction } from "./cities/index.ts";
+
 // 消防用設備等の設置義務と防火管理者の選任義務を、消防法施行令の条文どおりに決定的に判定する。
 // LLM には判定させない（要件定義書 5章 F2、データスキーマ設計 4章）。
 // 根拠: 消防法施行令 第1条の2・第10条・第11条・第12条・第19条・第21条〜第29条の2（e-Gov）
@@ -989,7 +991,7 @@ function nagoyaOverlay(base: Verdict, o: Occ, f: Facts): Verdict {
   }
 }
 
-export type InstallJurisdiction = "jp" | "kyoto-city" | "tokyo-tfd" | "nagoya-city" | "osaka-city" | "yokohama-city";
+export type InstallJurisdiction = "jp" | "kyoto-city" | "tokyo-tfd" | "nagoya-city" | "osaka-city" | "yokohama-city" | CityJurisdiction;
 
 export function judge(equipment: Equipment, facts: Facts, jurisdiction: InstallJurisdiction = "jp"): Verdict {
   const o = parseOccupancy(facts.occupancy);
