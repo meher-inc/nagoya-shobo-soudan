@@ -7,6 +7,7 @@ import { accountHash, cleanupProtect, countMetric, dailyMetrics, METRIC_KINDS, M
 import { chat, conversations } from "./chat";
 import { SERVICE } from "../config/service";
 import { LEGAL } from "../shared/consent";
+import { withSharedSecrets } from "./secrets";
 
 const app = new Hono<AppEnv>();
 
@@ -182,9 +183,11 @@ app.get("*", async (c) => {
 });
 
 export default {
-  fetch: app.fetch,
+  async fetch(request, env, ctx) {
+    return app.fetch(request, await withSharedSecrets(env), ctx);
+  },
   // 毎日: IP 単位の上限の記録と鍵（2 日）、退会者の記録（3 年）を消す。何度動いても結果は同じ
-  async scheduled(_event: ScheduledController, env: AppEnv["Bindings"]) {
+  async scheduled(_event, env) {
     await cleanupProtect(env);
   },
 } satisfies ExportedHandler<AppEnv["Bindings"]>;

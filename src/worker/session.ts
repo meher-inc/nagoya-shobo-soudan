@@ -94,6 +94,6 @@ export function publicMe(user: User | null, env: Env) {
     access: access.state,
     trialEndsAt: access.trialEndsAt,
     loginAvailable: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) || env.E2E_MODE === "1",
-    billingAvailable: Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_PRICE_ID),
+    billingAvailable: Boolean(env.STRIPE_SECRET_KEY),
   };
 }

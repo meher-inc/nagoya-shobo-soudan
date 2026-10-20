@@ -129,3 +129,11 @@ test("判定メモに結論・期限・足りない情報が入る", () => {
   assert.match(note, /消火器具: 必要/);
   assert.match(note, /防火管理者: 条件次第.*収容人員/);
 });
+
+test("大規模な建物の設備は、必要か条件次第のときだけ判定メモに載せる", () => {
+  const big = rulesNote(runRules("kyoto-city", ["地上7階建、延べ3,000㎡の事務所を使い始めます"])!);
+  assert.match(big, /連結送水管: 必要/);
+  assert.match(big, /消防機関へ通報する火災報知設備: 必要（原則）/);
+  const small = rulesNote(runRules("kyoto-city", ["平屋、延べ100㎡の事務所を使い始めます"])!);
+  assert.doesNotMatch(small, /連結送水管|非常コンセント|屋外消火栓/);
+});

@@ -324,6 +324,30 @@ test("after the trial the paywall appears and Stripe checkout unlocks the servic
   await ask(page, "課金後の質問");
 });
 
+test("the service creates its own Stripe price and webhook once, without manual IDs @local", async ({ page, playwright }) => {
+  // STRIPE_PRICE_ID and STRIPE_WEBHOOK_SECRET are not set in E2E: the checkout above only works if
+  // the worker found or created both by itself. Repeated checkouts must reuse them.
+  await login(page);
+  for (let i = 0; i < 2; i++) {
+    const res = await page.request.post("/api/billing/checkout");
+    expect(res.ok()).toBeTruthy();
+  }
+  const mock = await playwright.request.newContext({ baseURL: "http://localhost:12111" });
+  const state = await (await mock.get("/state")).json();
+  const key = `${SERVICE.id}-monthly-${SERVICE.price.amount}`;
+  expect(state.prices.filter((p: { lookup_key: string }) => p.lookup_key === key)).toEqual([
+    expect.objectContaining({ unit_amount: SERVICE.price.amount }),
+  ]);
+  expect(state.endpoints).toEqual([
+    {
+      url: "http://localhost:8787/api/stripe/webhook",
+      events: ["checkout.session.completed", "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"],
+    },
+  ]);
+  expect(state.deletedEndpoints).toBe(0);
+  await mock.dispose();
+});
+
 test("anonymous use is limited per IP per day, then login is offered @test-login", async ({ page, playwright, baseURL }) => {
   const ip = testIp();
   // Clearing cookies starts a new anonymous user, but the same IP is counted together.
