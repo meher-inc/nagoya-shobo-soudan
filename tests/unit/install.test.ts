@@ -1,4 +1,4 @@
-// 設置義務の判定（src/rules/install.ts）を、評価セットの inst-001〜047 と突き合わせる。
+// 設置義務の判定（src/rules/install.ts）を、評価セットの inst- の問いと突き合わせる（京都市・東京都の条例の上乗せを含む）。
 // 評価セットの結論と判定が食い違った問いは KNOWN_DIFF に理由つきで載せ、丸岡の確認を待つ。
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -14,6 +14,17 @@ const cases: Case[] = readFileSync(new URL("../../eval/answer-cases.jsonl", impo
   .filter((c: Case) => c.id.startsWith("inst-"));
 
 const KYOTO_ARTICLE: Record<string, Equipment> = { 第36条: "extinguisher", 第38条: "indoor_hydrant", 第39条: "sprinkler", 第43条: "evac_device", 第45条: "standpipe", 第45条の2: "emergency_outlet" };
+
+const TOKYO_ARTICLE: Record<string, Equipment> = {
+  第三十六条: "extinguisher",
+  第三十八条: "indoor_hydrant",
+  第三十九条: "sprinkler",
+  第四十一条: "auto_alarm",
+  第四十四条: "evac_device",
+  第四十五条: "guide_light",
+  第四十六条: "standpipe",
+  第四十六条の二: "emergency_outlet",
+};
 
 const BY_ARTICLE: Record<string, Equipment> = {
   第一条の二: "fire_manager",
@@ -41,13 +52,14 @@ const EXTRA_FACTS: Record<string, Partial<Facts>> = {
 const KNOWN_DIFF: Record<string, string> = {};
 
 test("評価セットに設置義務の問いがある", () => {
-  assert.ok(cases.length >= 61);
+  assert.ok(cases.length >= 73);
 });
 
 for (const c of cases) {
   test(`${c.id} ${c.expect}`, (t) => {
     const art = c.basis[0][1];
-    const eq = c.basis[0][0] === "京都市火災予防条例" ? KYOTO_ARTICLE[art] : BY_ARTICLE[art];
+    const law = c.basis[0][0];
+    const eq = law === "京都市火災予防条例" ? KYOTO_ARTICLE[art] : law === "火災予防条例（東京都）" ? TOKYO_ARTICLE[art] : BY_ARTICLE[art];
     assert.ok(eq, `条文 ${art} に対応する設備がない`);
     const v = judge(eq, { ...c.facts, ...EXTRA_FACTS[c.id] }, c.jurisdiction as InstallJurisdiction);
     if (KNOWN_DIFF[c.id]) {
@@ -62,10 +74,13 @@ for (const c of cases) {
       assert.equal(v.detail, "誘導標識");
     } else {
       assert.equal(v.result, "required", v.reason);
-      if (exp === "原則必要") assert.equal(v.assertive, false);
+      if (exp === "原則必要" || exp === "避難口誘導灯が必要") assert.equal(v.assertive, false);
       if (exp === "11階以上の階に必要") assert.equal(v.scope, "11階以上の階");
       if (exp === "高さ31mを超える部分に必要") assert.equal(v.scope, "高さ31mを超える部分");
+      if (exp === "地盤面からの高さが31mを超える階に必要") assert.equal(v.scope, "地盤面からの高さが31mを超える階");
+      if (exp === "避難口誘導灯が必要") assert.equal(v.detail, "避難口誘導灯");
       if (c.jurisdiction === "kyoto-city") assert.match(v.basis, /京都市火災予防条例/);
+      if (c.jurisdiction === "tokyo-tfd") assert.match(v.basis, /火災予防条例（東京都）/);
       if (exp === "非常警報器具が必要") assert.equal(v.detail, "非常警報器具");
       if (exp.startsWith("非常ベル・自動式サイレン・放送設備")) assert.match(v.detail ?? "", /いずれか/);
       if (exp.startsWith("非常ベル＋放送設備")) assert.match(v.detail ?? "", /放送設備$/);
@@ -87,4 +102,23 @@ test("用途の表記ゆれを読める", () => {
   for (const occ of ["(3)項ロ", "３ロ", "（６）項イ（４）", "16の2"]) {
     assert.notEqual(judge("guide_light", { occupancy: occ }).missing.join(), "occupancy", occ);
   }
+});
+
+test("東京都の上乗せは他の管轄に出ない", () => {
+  const f: Facts = { occupancy: "15", floors_above: 5, total_area: 800, structure: "other" };
+  assert.equal(judge("indoor_hydrant", f, "jp").result, "not_required");
+  assert.equal(judge("indoor_hydrant", f, "nagoya-city").result, "not_required");
+  assert.equal(judge("indoor_hydrant", f, "tokyo-tfd").result, "required");
+});
+
+test("東京都: 共同住宅の構造が分からなければ条件次第", () => {
+  const v = judge("auto_alarm", { occupancy: "5ロ", total_area: 300 }, "tokyo-tfd");
+  assert.equal(v.result, "conditional");
+  assert.deepEqual(v.missing, ["building_class"]);
+});
+
+test("東京都: 国の判定で断定して必要なものには特例の注意を足さない", () => {
+  const v = judge("auto_alarm", { occupancy: "4", total_area: 400 }, "tokyo-tfd");
+  assert.equal(v.result, "required");
+  assert.ok(!v.caveats.some((c) => c.includes("第四十七条")));
 });

@@ -696,6 +696,157 @@ function kyotoOverlay(base: Verdict, o: Occ, f: Facts): Verdict {
   }
 }
 
+// 東京都の火災予防条例（昭和37年東京都条例第65号）第5章（第35条〜第47条、東京都例規集）。
+// 適用は東京消防庁管内（特別区と、消防事務を委託した多摩地区の市町村）。方式は kyotoOverlay と同じ。
+// 第47条により、消防署長が認めた場合は適用されない（caveats に書く）。
+
+const T_JO = "火災予防条例（東京都）";
+const T_TOKUREI = "消防署長が、火災の発生・延焼のおそれが著しく少ない、又は同等以上の効力があると認めた場合は適用されない（火災予防条例（東京都）第四十七条）";
+const T_EXT_PLACES = "火花を生ずる設備、変電設備・発電設備、ボイラー室・サウナ室など多量の火気を使用する場所などには、別に消火器具を設ける（火災予防条例（東京都）第三十六条第二項）。一定規模以上の変電設備・発電設備のある場所には大型消火器も必要（同第三十七条）";
+
+// 特定主要構造部が耐火構造か、準耐火建築物（建基法2条9号の3イ・ロ）に当たるか。分からなければ null
+function tokyoFireResistant(f: Facts): boolean | null {
+  if (f.building_class === "fireproof" || f.building_class === "quasi_fireproof") return true;
+  if (f.structure !== undefined && f.structure !== "other") return true;
+  if (f.building_class === "other") return false;
+  return null;
+}
+
+function tokyoOverlay(base: Verdict, o: Occ, f: Facts): Verdict {
+  const note = (v: Verdict, ...cs: string[]): Verdict => ({ ...v, caveats: [...v.caveats, ...cs] });
+  if (base.result === "required" && base.assertive) {
+    if (base.equipment === "extinguisher") return note(base, T_EXT_PLACES);
+    return base;
+  }
+  const up = (result: Result, basis: string, reason: string, extra: Partial<Verdict> = {}): Verdict => ({
+    ...base,
+    result,
+    basis,
+    reason,
+    assertive: extra.assertive ?? true,
+    scope: extra.scope,
+    detail: extra.detail ?? base.detail,
+    caveats: [...(extra.caveats ?? []), T_TOKUREI],
+    missing: extra.missing ?? [],
+  });
+  const basement4 = f.floor !== undefined && f.floor <= -4;
+  switch (base.equipment) {
+    case "extinguisher": {
+      if (inList(o, ["16イ", "16ロ"]) && f.total_area !== undefined && f.total_area >= 150)
+        return up("required", `${T_JO} 第三十六条第一項`, `複合用途で延べ面積${f.total_area}㎡（150㎡以上）。(3)〜(6)・(9)・(12)〜(15)項の用途の部分があれば消火器具が必要`, {
+          assertive: false,
+          caveats: ["該当する用途の部分がなければ、この条は当たらない", T_EXT_PLACES],
+        });
+      return note(base, T_EXT_PLACES);
+    }
+    case "indoor_hydrant": {
+      if (inList(o, ["16イ", "16ロ"]) && f.total_area !== undefined) {
+        const mul = areaMultiplier(f.structure);
+        const b = `${T_JO} 第三十八条第一項第一号`;
+        if (mul === null) {
+          if (f.total_area >= 3000) return up("required", b, `複合用途で延べ面積${f.total_area}㎡（3倍読みの3,000㎡以上）`);
+          if (f.total_area >= 1000) return up("conditional", b, "複合用途は延べ1,000㎡以上で必要。構造と内装で基準が2,000㎡・3,000㎡になる", { missing: ["structure"] });
+        } else if (f.total_area >= 1000 * mul) return up("required", b, `複合用途で延べ面積${f.total_area}㎡（基準${1000 * mul}㎡以上）`);
+      }
+      if (f.floors_above !== undefined && f.floors_above >= 5)
+        return up("required", `${T_JO} 第三十八条第一項第二号`, `地階を除く階数が${f.floors_above}（5以上）`, {
+          assertive: f.structure === "other",
+          caveats: ["特定主要構造部が耐火構造か主要構造部が不燃材料で、5階以上の階の床面積の合計が150㎡（耐火構造で内装が準不燃なら300㎡）以下のもの、又は5階以上の部分が150㎡（同300㎡）以内ごとに耐火構造の床・壁・防火戸で区画されたものは除かれる"],
+        });
+      if (base.result === "not_required")
+        return note(base, "紙類等を別表第七の数量の750倍以上貯蔵・取扱う場合は必要（火災予防条例（東京都）第三十八条第一項第三号）");
+      return base;
+    }
+    case "sprinkler": {
+      if (f.height !== undefined && f.height > 31)
+        return up("required", `${T_JO} 第三十九条第一項第五号`, `高さ${f.height}m（31m超）`, { scope: "地盤面からの高さが31mを超える階" });
+      if (f.floor !== undefined && f.floor_area !== undefined) {
+        const lowOrWindowless = f.floor < 0 || f.windowless === true;
+        if (inList(o, ["12ロ"]) && f.floor_area >= (lowOrWindowless || f.floor >= 4 ? 300 : 500))
+          return up("required", `${T_JO} 第三十九条第一項第一号`, `映画・テレビの撮影スタジオのある階で床面積${f.floor_area}㎡（${lowOrWindowless || f.floor >= 4 ? "地階・無窓階・4階以上は300" : "500"}㎡以上）`, {
+            scope: "その階",
+            assertive: false,
+            caveats: ["床面積はスタジオ部分（接続する大道具室・小道具室を含む）の合計で判定する"],
+          });
+        if (inList(o, ["5ロ", "7", "8", "12イ"]) && lowOrWindowless && f.floor_area >= 2000)
+          return up("required", `${T_JO} 第三十九条第一項第三号`, `地階・無窓階で床面積${f.floor_area}㎡（2,000㎡以上）`, { scope: "その階" });
+        if (inList(o, ["16イ", "16ロ"]) && lowOrWindowless && f.floor_area >= 2000)
+          return up("conditional", `${T_JO} 第三十九条第一項第四号`, "複合用途の地階・無窓階は、(5)項ロ・(7)・(8)・(12)項の部分の床面積の合計が2,000㎡以上なら必要", { scope: "その階", missing: ["occupancy"] });
+        if (basement4) {
+          const specific = inList(o, ["1", "2", "3", "4", "5イ", "6", "9イ", "16イ"]) === true;
+          const t = specific ? 1000 : 2000;
+          if (f.floor_area >= t)
+            return up("required", `${T_JO} 第三十九条第一項${specific ? "第四号の二" : "第四号の三"}`, `地下4階以下の階で床面積${f.floor_area}㎡（地下4階以下の合計${t.toLocaleString()}㎡以上）`, {
+              scope: "地下4階以下の階",
+              assertive: !inList(o, ["16イ"]),
+              caveats: inList(o, ["16イ"]) ? ["小規模特定用途複合防火対象物は基準が2,000㎡になる（同号の三）"] : [],
+            });
+        }
+      }
+      if (f.height === undefined && f.floors_above !== undefined && f.floors_above >= 9 && base.result === "not_required")
+        return up("conditional", `${T_JO} 第三十九条第一項第五号`, "地盤面からの高さが31mを超える階があれば、その階に必要", { missing: ["height"] });
+      if (inList(o, ["10"])) return note(base, "地階に乗降場がある鉄道の停車場は、地階の停車場の部分に必要（火災予防条例（東京都）第三十九条第一項第四号の四）");
+      return base;
+    }
+    case "auto_alarm": {
+      const fr = tokyoFireResistant(f);
+      if (inList(o, ["5ロ"]) && f.total_area !== undefined && f.total_area >= 200) {
+        const b = `${T_JO} 第四十一条第一項第一号`;
+        if (fr === false) return up("required", b, `共同住宅で耐火構造・準耐火建築物でなく、延べ面積${f.total_area}㎡（200㎡以上）`);
+        if (fr === null) return up("conditional", b, "共同住宅は、特定主要構造部が耐火構造でも準耐火建築物（イ・ロ）でもなければ延べ200㎡以上で必要", { missing: ["building_class"] });
+      }
+      if (inList(o, ["16ロ"]) && f.total_area !== undefined) {
+        if (f.total_area >= 1000) return up("required", `${T_JO} 第四十一条第一項第三号`, `(16)項ロで延べ面積${f.total_area}㎡（1,000㎡以上）`);
+        if (f.total_area >= 300 && fr !== true)
+          return up("conditional", `${T_JO} 第四十一条第一項第二号`, "耐火構造・準耐火建築物でない(16)項ロで、2階以上の階を共同住宅に使うものは延べ300㎡以上で必要", {
+            missing: fr === null ? ["building_class"] : [],
+            assertive: false,
+          });
+      }
+      if (base.result === "not_required")
+        return note(base, "紙類等を別表第七の数量の500倍以上貯蔵・取扱う場合は必要（火災予防条例（東京都）第四十一条第一項第四号）");
+      return base;
+    }
+    case "emergency_alarm":
+      if (inList(o, ["10"])) return note(base, "地階に乗降場がある車両の停車場は、非常ベル＋放送設備又は自動式サイレン＋放送設備が必要（火災予防条例（東京都）第四十三条の二）");
+      return base;
+    case "evac_device": {
+      if (inList(o, ["1", "2", "3", "4", ...range(7, 16), "16イ", "16ロ"]) && f.floor !== undefined && f.floor >= 6 && f.floor_capacity !== undefined && f.floor_capacity >= 30)
+        return up("required", `${T_JO} 第四十四条第一項`, `6階以上の階で収容人員${f.floor_capacity}人（30人以上）`, { scope: "その階" });
+      return base;
+    }
+    case "guide_light": {
+      if (inList(o, ["12"]) && f.total_area !== undefined && f.total_area >= 300)
+        return up("required", `${T_JO} 第四十五条第一項第二号`, `工場・作業場等で延べ面積${f.total_area}㎡（300㎡以上）`, {
+          assertive: false,
+          detail: "避難口誘導灯",
+          caveats: ["避難が容易な部分として省令の例により不要とされた部分は除かれる", "通路誘導灯は、地階・無窓階・11階以上の部分にだけ必要（消防法施行令第二十六条）"],
+        });
+      if (inList(o, ["7"]) && (f.total_area === undefined || f.total_area >= 300))
+        return note(base, "夜間に授業を行う課程を置く学校で延べ300㎡以上なら、避難口誘導灯と通路誘導灯が必要（火災予防条例（東京都）第四十五条第一項第一号）");
+      return base;
+    }
+    case "smoke_control":
+      if ((f.floors_below ?? 0) >= 4 && inList(o, ["1", "3", ...range(5, 9), "11", "12", "14", "15", "16"]))
+        return note(base, "地下4階以下の階で、駐車の用に供する部分の床面積が1,000㎡以上なら必要（火災予防条例（東京都）第四十五条の二）");
+      return base;
+    case "standpipe": {
+      if (inList(o, ["2", "4", "10", "13"]) && f.floor !== undefined && (f.floor < 0 || (f.windowless === true && f.floor >= 3)) && f.floor_area !== undefined && f.floor_area >= 1000)
+        return up("required", `${T_JO} 第四十六条第一項第一号`, `地階・無窓階（1階・2階を除く）で床面積${f.floor_area}㎡（1,000㎡以上）`, { scope: "その階" });
+      return note(base, "屋上を回転翼航空機の発着場や自動車駐車場に使う場合は必要（火災予防条例（東京都）第四十六条第一項第二号）");
+    }
+    case "emergency_outlet": {
+      if (inList(o, range(1, 16)) && basement4 && f.floor_area !== undefined && f.floor_area >= 1000)
+        return up("required", `${T_JO} 第四十六条の二第一項`, `地下4階以下の階で床面積${f.floor_area}㎡（地下4階以下の合計1,000㎡以上）`, { scope: "地下4階以下の階" });
+      if (base.result === "not_required")
+        return note(base, "地下4階以下の階の床面積の合計が1,000㎡以上なら、その階に必要（火災予防条例（東京都）第四十六条の二）");
+      return base;
+    }
+    default:
+      return base;
+  }
+}
+
 export type InstallJurisdiction = "jp" | "kyoto-city" | "tokyo-tfd" | "nagoya-city" | "osaka-city" | "yokohama-city";
 
 export function judge(equipment: Equipment, facts: Facts, jurisdiction: InstallJurisdiction = "jp"): Verdict {
@@ -703,6 +854,7 @@ export function judge(equipment: Equipment, facts: Facts, jurisdiction: InstallJ
   if (!o) return verdict(equipment, "conditional", "消防法施行令 別表第一", "用途（令別表第一の項）が読み取れない", { missing: ["occupancy"] });
   const base = JUDGES[equipment]({ o, f: facts });
   if (jurisdiction === "kyoto-city") return kyotoOverlay(base, o, facts);
+  if (jurisdiction === "tokyo-tfd") return tokyoOverlay(base, o, facts);
   if (jurisdiction !== "jp") return { ...base, caveats: [...base.caveats, "この管轄の火災予防条例による上乗せは、まだ判定に入っていない"] };
   return base;
 }
