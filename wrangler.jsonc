@@ -47,7 +47,7 @@
     // Workers AI のモデル。選定理由は README の「技術選定の理由」
     "AI_MODEL": "@cf/google/gemma-4-26b-a4b-it",
     // 差し替え: 独自ドメインを接続したら https://<host> にする
-    "CANONICAL_ORIGIN": "https://nagoya-shobo-soudan.shun-maruoka.workers.dev",
+    "CANONICAL_ORIGIN": "https://nagoya.todokede.jp",
     "STRIPE_API_BASE": "https://api.stripe.com",
     // 設置義務・届出の要否を条文どおりのルールで判定して回答に渡す（src/rules）。初回公開前なので有効
     "RULES_ENABLED": "1"
