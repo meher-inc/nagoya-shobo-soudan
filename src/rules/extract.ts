@@ -163,7 +163,7 @@ export function runRules(jurisdiction: Jurisdiction, userTexts: string[]): Rules
   const scenes = detectScenes(latest).length ? detectScenes(latest) : detectScenes(userTexts.join("\n"));
   if (!facts.occupancy && !scenes.length) return null;
   const install = facts.occupancy
-    ? [...INSTALL_FOR_NOTE.map((e) => judge(e, facts as Facts)), ...INSTALL_LARGE.map((e) => judge(e, facts as Facts)).filter((v) => v.result !== "not_required")]
+    ? [...INSTALL_FOR_NOTE.map((e) => judge(e, facts as Facts, jurisdiction)), ...INSTALL_LARGE.map((e) => judge(e, facts as Facts, jurisdiction)).filter((v) => v.result !== "not_required")]
     : [];
   const filings = scenes.flatMap((s) => judgeFilings(jurisdiction, s, facts));
   return { facts, scenes, install, filings };
@@ -189,9 +189,9 @@ export function rulesNote(r: RulesResult): string {
     out.push("届出書の作成・提出の代行は行政書士の業務です。記入内容や記入例は書かず、必要なら行政書士への依頼を案内してください。");
   }
   if (r.install.length) {
-    out.push("## 消防用設備等・防火管理者（消防法施行令）");
+    out.push("## 消防用設備等・防火管理者（消防法施行令と条例）");
     for (const x of r.install) out.push(line(EQUIPMENT_LABEL[x.equipment], x, x.detail ? `（${x.detail}）` : x.scope ? `（${x.scope}）` : ""));
-    out.push("条例による上乗せや、総務省令の除外・令第32条の特例はこの判定に含まれていません。最終的な判断は所轄の消防署が行う旨を添えてください。");
+    out.push("総務省令の除外・令第32条の特例はこの判定に含まれていません（条例の上乗せは、判定に入っている管轄だけ根拠欄に条例を示しています）。最終的な判断は所轄の消防署が行う旨を添えてください。");
   }
   return out.join("\n");
 }

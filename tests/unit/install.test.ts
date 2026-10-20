@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { judge, type Equipment, type Facts } from "../../src/rules/install.ts";
+import { judge, type Equipment, type Facts, type InstallJurisdiction } from "../../src/rules/install.ts";
 
 type Case = { id: string; jurisdiction: string; facts: Facts; expect: string; basis: [string, string][]; assertive: boolean; note?: string };
 
@@ -12,6 +12,8 @@ const cases: Case[] = readFileSync(new URL("../../eval/answer-cases.jsonl", impo
   .filter(Boolean)
   .map((l) => JSON.parse(l))
   .filter((c: Case) => c.id.startsWith("inst-"));
+
+const KYOTO_ARTICLE: Record<string, Equipment> = { 第36条: "extinguisher", 第38条: "indoor_hydrant", 第39条: "sprinkler", 第43条: "evac_device", 第45条: "standpipe", 第45条の2: "emergency_outlet" };
 
 const BY_ARTICLE: Record<string, Equipment> = {
   第一条の二: "fire_manager",
@@ -39,15 +41,15 @@ const EXTRA_FACTS: Record<string, Partial<Facts>> = {
 const KNOWN_DIFF: Record<string, string> = {};
 
 test("評価セットに設置義務の問いがある", () => {
-  assert.ok(cases.length >= 55);
+  assert.ok(cases.length >= 61);
 });
 
 for (const c of cases) {
   test(`${c.id} ${c.expect}`, (t) => {
     const art = c.basis[0][1];
-    const eq = BY_ARTICLE[art];
+    const eq = c.basis[0][0] === "京都市火災予防条例" ? KYOTO_ARTICLE[art] : BY_ARTICLE[art];
     assert.ok(eq, `条文 ${art} に対応する設備がない`);
-    const v = judge(eq, { ...c.facts, ...EXTRA_FACTS[c.id] });
+    const v = judge(eq, { ...c.facts, ...EXTRA_FACTS[c.id] }, c.jurisdiction as InstallJurisdiction);
     if (KNOWN_DIFF[c.id]) {
       t.diagnostic(`確認待ち: ${KNOWN_DIFF[c.id]}（判定: ${v.result}）`);
       return;
@@ -62,6 +64,8 @@ for (const c of cases) {
       assert.equal(v.result, "required", v.reason);
       if (exp === "原則必要") assert.equal(v.assertive, false);
       if (exp === "11階以上の階に必要") assert.equal(v.scope, "11階以上の階");
+      if (exp === "高さ31mを超える部分に必要") assert.equal(v.scope, "高さ31mを超える部分");
+      if (c.jurisdiction === "kyoto-city") assert.match(v.basis, /京都市火災予防条例/);
       if (exp === "非常警報器具が必要") assert.equal(v.detail, "非常警報器具");
       if (exp.startsWith("非常ベル・自動式サイレン・放送設備")) assert.match(v.detail ?? "", /いずれか/);
       if (exp.startsWith("非常ベル＋放送設備")) assert.match(v.detail ?? "", /放送設備$/);

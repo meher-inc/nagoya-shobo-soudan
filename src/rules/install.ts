@@ -621,12 +621,92 @@ export function occupancyIn(raw: string, list: string[]): boolean | null {
   return o ? inList(o, list) : null;
 }
 
-export function judge(equipment: Equipment, facts: Facts): Verdict {
-  const o = parseOccupancy(facts.occupancy);
-  if (!o) return verdict(equipment, "conditional", "消防法施行令 別表第一", "用途（令別表第一の項）が読み取れない", { missing: ["occupancy"] });
-  return JUDGES[equipment]({ o, f: facts });
+// ---- 条例による上乗せ（消防法第17条第2項）----
+// 京都市火災予防条例 第5章（第36条〜第45条の3）。国の判定が「不要」「条件次第」のときに、条例の基準で上書きする。
+// 条例第46条により、消防長・消防署長が認めた場合は適用されない（caveats に書く）。
+
+const K_JO = "京都市火災予防条例";
+const K_TOKUREI = "消防長・消防署長が同等以上の効力があると認めた場合は適用されない（京都市火災予防条例第46条）";
+
+function kyotoOverlay(base: Verdict, o: Occ, f: Facts): Verdict {
+  if (base.result === "required" && base.assertive) {
+    if (base.equipment === "extinguisher")
+      return { ...base, caveats: [...base.caveats, "変電設備・ボイラー室・火花を生じる設備のある場所などには、別に消火器を1個以上置く（京都市火災予防条例第36条第2項）"] };
+    return base;
+  }
+  const up = (result: Result, basis: string, reason: string, extra: Partial<Verdict> = {}): Verdict => ({
+    ...base,
+    result,
+    basis,
+    reason,
+    assertive: extra.assertive ?? true,
+    scope: extra.scope,
+    caveats: [...(extra.caveats ?? []), K_TOKUREI],
+    missing: extra.missing ?? [],
+  });
+  switch (base.equipment) {
+    case "extinguisher": {
+      if (inList(o, ["16イ", "16ロ"]) && f.total_area !== undefined && f.total_area >= 150)
+        return up("required", `${K_JO} 第36条第1項`, `複合用途で延べ面積${f.total_area}㎡（150㎡以上）。(3)〜(6)・(9)・(12)〜(15)項の用途の部分ごとに消火器を1個以上置く`, { assertive: false, caveats: ["該当する用途の部分がなければ、この条は当たらない"] });
+      return { ...base, caveats: [...base.caveats, "変電設備・ボイラー室・火花を生じる設備のある場所などには、別に消火器を1個以上置く（京都市火災予防条例第36条第2項）"] };
+    }
+    case "indoor_hydrant": {
+      if (inList(o, ["16イ", "16ロ"]) && f.total_area !== undefined) {
+        const mul = areaMultiplier(f.structure);
+        if (mul === null) {
+          if (f.total_area >= 3000) return up("required", `${K_JO} 第38条第1項第1号・第2項`, `複合用途で延べ面積${f.total_area}㎡（3倍読みの3,000㎡以上）`);
+          if (f.total_area >= 1000) return up("conditional", `${K_JO} 第38条第1項第1号・第2項`, "複合用途は延べ1,000㎡以上で必要。構造と内装で基準が2倍・3倍になる", { missing: ["structure"] });
+        } else if (f.total_area >= 1000 * mul) return up("required", `${K_JO} 第38条第1項第1号・第2項`, `複合用途で延べ面積${f.total_area}㎡（基準${1000 * mul}㎡以上）`);
+      }
+      if (f.floors_above !== undefined && f.floors_above >= 5)
+        return up("required", `${K_JO} 第38条第1項第2号`, `地階を除く階数が${f.floors_above}（5以上）`, {
+          assertive: f.structure === "other",
+          caveats: ["特定主要構造部が耐火構造などで、5階以上の部分の床面積の合計が100㎡（内装が準不燃なら200㎡）以下の建物は除かれる"],
+        });
+      return base;
+    }
+    case "sprinkler": {
+      if (f.height !== undefined && f.height > 31) return up("required", `${K_JO} 第39条第1項第4号`, `高さ${f.height}m（31m超）`, { scope: "高さ31mを超える部分" });
+      if (inList(o, ["5ロ", "7", "8", "12イ"]) && f.floor !== undefined && (f.floor < 0 || f.windowless) && f.floor_area !== undefined && f.floor_area >= 2000)
+        return up("required", `${K_JO} 第39条第1項第2号`, `地階・無窓階で床面積${f.floor_area}㎡（2,000㎡以上）`, { scope: "その階" });
+      if (inList(o, ["12ロ"]) && f.floor !== undefined && f.floor_area !== undefined && f.floor_area >= ((f.floor < 0 || f.windowless) ? 500 : 1000))
+        return up("required", `${K_JO} 第39条第1項第1号`, `映画スタジオ等の階で床面積${f.floor_area}㎡`, { scope: "その階" });
+      if (f.height === undefined && f.floors_above !== undefined && f.floors_above >= 9 && base.result === "not_required")
+        return up("conditional", `${K_JO} 第39条第1項第4号`, "高さ31mを超える部分があれば、その部分に必要", { missing: ["height"] });
+      return base;
+    }
+    case "evac_device": {
+      if (inList(o, ["1", "2", "3", "4", ...range(7, 16), "16イ", "16ロ"]) && f.floor !== undefined && f.floor >= 6 && f.floor <= 10 && f.floor_capacity !== undefined && f.floor_capacity >= 30)
+        return up("required", `${K_JO} 第43条第1項`, `6階以上の階で収容人員${f.floor_capacity}人（30人以上）`, { scope: "その階" });
+      return base;
+    }
+    case "standpipe": {
+      if (inList(o, ["2", "4", "10", "13", "16イ"]) && f.floor !== undefined && (f.floor < 0 || (f.windowless && f.floor >= 3)) && f.floor_area !== undefined && f.floor_area >= 1000)
+        return up("required", `${K_JO} 第45条第1項第1号`, `地階・無窓階（1階・2階を除く）で床面積${f.floor_area}㎡（1,000㎡以上）`, { scope: "その階", assertive: !inList(o, ["16イ"]) });
+      return { ...base, caveats: [...base.caveats, "屋上をヘリコプターの発着場や駐車場に使う場合は必要（京都市火災予防条例第45条第1項第2号）"] };
+    }
+    case "emergency_outlet": {
+      if (inList(o, range(1, 16)) && f.floor !== undefined && f.floor < 0 && f.floor_area !== undefined && f.floor_area >= 1000)
+        return up("required", `${K_JO} 第45条の2第1項`, `地階の床面積${f.floor_area}㎡（地階の合計1,000㎡以上）`, { scope: "地階" });
+      if (base.result === "not_required") return { ...base, caveats: [...base.caveats, "地階の床面積の合計が1,000㎡以上なら地階に必要（京都市火災予防条例第45条の2）"] };
+      return base;
+    }
+    default:
+      return base;
+  }
 }
 
-export function judgeAll(facts: Facts): Verdict[] {
-  return (Object.keys(JUDGES) as Equipment[]).map((e) => judge(e, facts));
+export type InstallJurisdiction = "jp" | "kyoto-city" | "tokyo-tfd" | "nagoya-city" | "osaka-city" | "yokohama-city";
+
+export function judge(equipment: Equipment, facts: Facts, jurisdiction: InstallJurisdiction = "jp"): Verdict {
+  const o = parseOccupancy(facts.occupancy);
+  if (!o) return verdict(equipment, "conditional", "消防法施行令 別表第一", "用途（令別表第一の項）が読み取れない", { missing: ["occupancy"] });
+  const base = JUDGES[equipment]({ o, f: facts });
+  if (jurisdiction === "kyoto-city") return kyotoOverlay(base, o, facts);
+  if (jurisdiction !== "jp") return { ...base, caveats: [...base.caveats, "この管轄の火災予防条例による上乗せは、まだ判定に入っていない"] };
+  return base;
+}
+
+export function judgeAll(facts: Facts, jurisdiction: InstallJurisdiction = "jp"): Verdict[] {
+  return (Object.keys(JUDGES) as Equipment[]).map((e) => judge(e, facts, jurisdiction));
 }

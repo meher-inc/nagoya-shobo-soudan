@@ -8,7 +8,7 @@
 //   消防訓練の通報: 消防法施行規則 第3条第10項・第11項（e-Gov）
 // 届出書の作成・提出の代行は行政書士の業務（行政書士法第19条）なので lane は gyosei にする。
 
-import { judge, occupancyIn, type Facts } from "./install.ts";
+import { EQUIPMENT_LABEL, judge, occupancyIn, type Equipment, type Facts } from "./install.ts";
 
 export type Jurisdiction = "kyoto-city" | "tokyo-tfd" | "nagoya-city" | "osaka-city" | "yokohama-city";
 
@@ -81,8 +81,8 @@ function kyoto(scene: Scene, f: FilingFacts): FilingVerdict[] | null {
       if (!f.occupancy) return [v({ ...base, result: "conditional", reason: "防火管理者の選任が必要か、消防用設備等の設置が必要な防火対象物だけが対象", missing: ["occupancy"] })];
       const facts = f as Facts;
       const fm = judge("fire_manager", facts);
-      // 規則第10条第1項第2号: 非常警報器具・避難器具・誘導灯・誘導標識は除く
-      const eqs = (["extinguisher", "indoor_hydrant", "sprinkler", "auto_alarm", "leak_alarm", "emergency_alarm"] as const).map((e) => judge(e, facts));
+      // 規則第10条第1項第2号: 法第17条第1項又は条例第5章で設置が必要な消防用設備等（非常警報器具・避難器具・誘導灯・誘導標識を除く）
+      const eqs = (["extinguisher", "indoor_hydrant", "sprinkler", "auto_alarm", "leak_alarm", "emergency_alarm", "standpipe", "emergency_outlet"] as const).map((e) => judge(e, facts, "kyoto-city"));
       const hits = [fm, ...eqs.filter((x) => !(x.equipment === "emergency_alarm" && x.detail === "非常警報器具"))].filter((x) => x.result === "required");
       if (hits.length)
         return [v({ ...base, result: "required", reason: `${hits.map((h) => (h.equipment === "fire_manager" ? "防火管理者の選任" : `${labelOf(h.equipment)}の設置`)).join("・")}が必要な防火対象物に当たる` })];
@@ -91,7 +91,7 @@ function kyoto(scene: Scene, f: FilingFacts): FilingVerdict[] | null {
       const unknown = [fm, ...eqs].filter((x) => x.result === "conditional" && !leakOnly(x));
       if (unknown.length)
         return [v({ ...base, result: "conditional", reason: "防火管理者の選任か、消防用設備等の設置が必要なら対象", missing: [...new Set(unknown.flatMap((x) => x.missing))] })];
-      return [v({ ...base, result: "not_required", reason: "防火管理者の選任も、届出の対象になる消防用設備等の設置も必要ない規模", caveats: ["京都市火災予防条例第5章で上乗せされる設備があれば対象になる", "ラスモルタル造などで漏電火災警報器が必要な建物なら対象になる", "地階・無窓階・3階以上の階がある場合は階ごとの基準も確認する"] })];
+      return [v({ ...base, result: "not_required", reason: "防火管理者の選任も、届出の対象になる消防用設備等の設置も必要ない規模", caveats: ["ラスモルタル造などで漏電火災警報器が必要な建物なら対象になる", "地階・無窓階・3階以上の階がある場合は階ごとの基準も確認する"] })];
     }
     case "fire_equipment": {
       const base = { target, deadline: "設置工事に着手する日の5日前まで", basis: `${K_JO} 第56条、${K_KI} 第11条`, inspection: "工事が完了したら署長が必要に応じて検査する（規則第11条第2項）" };
@@ -152,8 +152,7 @@ function kitchenRest(b: Omit<FilingVerdict, "result" | "reason" | "caveats" | "m
   return [v({ ...b, result: "not_required", reason: `${why}。入力合計${f.kitchen_kw}kW（350kW未満）で、排気ダクトは立ち下がらない` })];
 }
 
-const LABEL: Record<string, string> = { fire_manager: "防火管理者", extinguisher: "消火器具", indoor_hydrant: "屋内消火栓設備", sprinkler: "スプリンクラー設備", auto_alarm: "自動火災報知設備", leak_alarm: "漏電火災警報器", emergency_alarm: "非常警報設備" };
-const labelOf = (e: string) => LABEL[e] ?? e;
+const labelOf = (e: string) => EQUIPMENT_LABEL[e as Equipment] ?? e;
 
 // ---- 東京都（東京消防庁管内）----
 
