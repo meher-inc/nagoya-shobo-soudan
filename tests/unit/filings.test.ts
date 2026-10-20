@@ -130,7 +130,7 @@ test("判定メモに結論・期限・足りない情報が入る", () => {
   assert.match(note, /防火管理者: 条件次第.*収容人員/);
 });
 
-test("大規模な建物の設備は、必要か条件次第のときだけ判定メモに載せる", () => {
+test("大規模な建物の設備は、聞かれていなければ必要のときだけ判定メモに載せる", () => {
   const big = rulesNote(runRules("kyoto-city", ["地上7階建、延べ3,000㎡の事務所を使い始めます"])!);
   assert.match(big, /連結送水管: 必要/);
   assert.match(big, /消防機関へ通報する火災報知設備: 必要（原則）/);
@@ -168,4 +168,27 @@ test("露店で調理する（焼く・揚げる）なら火気を使うもの�
   assert.equal(extractFacts("お祭りで露店を出してたこ焼きを焼きます").stall_fire, true);
   assert.equal(extractFacts("屋台で唐揚げを揚げる").stall_fire, true);
   assert.equal(extractFacts("露店で手作りの雑貨を売る").stall_fire, undefined);
+});
+
+test("判定メモは、聞かれた項目を先に答え、メモを丸写ししないよう指示する", () => {
+  const note = rulesNote(runRules("kyoto-city", ["延べ800㎡の事務所"])!);
+  assert.match(note, /聞いた設備・届出の結論と根拠を最初に/);
+  assert.match(note, /そのまま写さず/);
+});
+
+test("聞かれた設備は判定メモの先頭に分け、大規模な建物の設備も条件次第なら載せる", () => {
+  const r = runRules("kyoto-city", ["京都市内の物品販売店舗の地下1階、床面積1,200㎡です。連結送水管は必要ですか？"])!;
+  assert.deepEqual(r.asked, ["standpipe"]);
+  assert.equal(r.install[0].equipment, "standpipe");
+  const note = rulesNote(r);
+  assert.match(note, /## 相談者が聞いている設備[^#]*連結送水管: 必要/);
+  const q = runRules("kyoto-city", ["延べ300㎡の事務所。連結送水管は必要？"])!;
+  assert.equal(q.install[0].equipment, "standpipe");
+  assert.equal(q.install[0].result, "conditional");
+  assert.doesNotMatch(rulesNote(runRules("kyoto-city", ["延べ300㎡の事務所"])!), /連結送水管/);
+});
+
+test("原則として必要な項目は、除外・例外も判定メモに載せる", () => {
+  const note = rulesNote(runRules("kyoto-city", ["地上5階建、延べ800㎡の事務所。屋内消火栓設備は必要ですか？"])!);
+  assert.match(note, /屋内消火栓設備: 必要（原則）.*除外・例外（「原則として必要」と書き、これに触れる）: 特定主要構造部が耐火構造/);
 });

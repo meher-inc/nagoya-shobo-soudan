@@ -127,8 +127,32 @@ export function detectScenes(text: string): Scene[] {
 }
 
 const INSTALL_FOR_NOTE: Equipment[] = ["fire_manager", "extinguisher", "indoor_hydrant", "sprinkler", "auto_alarm", "emergency_alarm", "guide_light"];
-// 大規模な建物で必要になる設備。必要か条件次第のときだけ判定メモに載せる
+// 大規模な建物で必要になる設備。聞かれていなければ「必要」のときだけ判定メモに載せる
 const INSTALL_LARGE: Equipment[] = ["fire_report", "outdoor_hydrant", "fire_water", "smoke_control", "standpipe", "emergency_outlet"];
+
+// 相談者がどの設備について聞いているか
+const ASK_WORDS: [Equipment, RegExp][] = [
+  ["fire_manager", /防火管理者/],
+  ["fire_report", /通報する火災報知|火災通報装置/],
+  ["auto_alarm", /自動火災報知|自火報|感知器/],
+  ["extinguisher", /消火器/],
+  ["indoor_hydrant", /屋内消火栓/],
+  ["outdoor_hydrant", /屋外消火栓/],
+  ["sprinkler", /スプリンクラー/],
+  ["leak_alarm", /漏電火災警報器|漏電/],
+  ["emergency_alarm", /非常警報|非常ベル|放送設備|自動式サイレン/],
+  ["evac_device", /避難器具|避難はしご|救助袋|緩降機/],
+  ["guide_light", /誘導灯|誘導標識/],
+  ["fire_water", /消防用水/],
+  ["smoke_control", /排煙/],
+  ["standpipe", /連結送水管/],
+  ["emergency_outlet", /非常コンセント/],
+];
+
+export function askedEquipment(text: string): Equipment[] {
+  const t = text.normalize("NFKC");
+  return ASK_WORDS.filter(([, re]) => re.test(t)).map(([e]) => e);
+}
 
 const RESULT_JA = { required: "必要", not_required: "不要", conditional: "条件次第" } as const;
 
@@ -167,9 +191,9 @@ const MISSING_JA: Record<string, string> = {
 const line = (label: string, r: Verdict | FilingVerdict, extra = "") =>
   `- ${label}: ${RESULT_JA[r.result]}${"assertive" in r && !r.assertive && r.result === "required" ? "（原則）" : ""}${extra}。理由: ${r.reason}。根拠: ${r.basis}${
     r.missing.length ? `。足りない情報: ${[...new Set(r.missing)].map((m) => MISSING_JA[m] ?? m).join("、")}` : ""
-  }`;
+  }${"assertive" in r && !r.assertive && r.result === "required" && r.caveats.length ? `。除外・例外（「原則として必要」と書き、これに触れる）: ${r.caveats[0]}` : ""}`;
 
-export type RulesResult = { facts: FilingFacts; scenes: Scene[]; install: Verdict[]; filings: FilingVerdict[] };
+export type RulesResult = { facts: FilingFacts; scenes: Scene[]; install: Verdict[]; filings: FilingVerdict[]; asked: Equipment[] };
 
 /** 会話中の利用者の発言（古い順）から判定する。後の発言の値を優先する */
 export function runRules(jurisdiction: Jurisdiction, userTexts: string[]): RulesResult | null {
@@ -178,17 +202,25 @@ export function runRules(jurisdiction: Jurisdiction, userTexts: string[]): Rules
   const latest = userTexts.at(-1) ?? "";
   const scenes = detectScenes(latest).length ? detectScenes(latest) : detectScenes(userTexts.join("\n"));
   if (!facts.occupancy && !scenes.length) return null;
+  const asked = askedEquipment(latest);
+  const j = (e: Equipment) => judge(e, facts as Facts, jurisdiction);
   const install = facts.occupancy
-    ? [...INSTALL_FOR_NOTE.map((e) => judge(e, facts as Facts, jurisdiction)), ...(facts.floor !== undefined ? [judge("evac_device", facts as Facts, jurisdiction)] : []), ...INSTALL_LARGE.map((e) => judge(e, facts as Facts, jurisdiction)).filter((v) => v.result !== "not_required")]
+    ? [
+        ...asked.map(j),
+        ...INSTALL_FOR_NOTE.filter((e) => !asked.includes(e)).map(j),
+        ...(facts.floor !== undefined && !asked.includes("evac_device") ? [j("evac_device")] : []),
+        ...INSTALL_LARGE.filter((e) => !asked.includes(e)).map(j).filter((v) => v.result === "required"),
+      ]
     : [];
   const filings = scenes.flatMap((s) => judgeFilings(jurisdiction, s, facts));
-  return { facts, scenes, install, filings };
+  return { facts, scenes, install, filings, asked: facts.occupancy ? asked : [] };
 }
 
 export function rulesNote(r: RulesResult): string {
   const out = ["# ルールによる判定結果（この回答の結論はこれに従う）"];
   out.push("相談文から読み取った条件で、条文どおりに機械的に判定した結果です。「個別の要否を断定しない」という指示より、この判定結果を優先します。結論（必要／不要／条件次第）と期限・提出先はこのとおりに書き、変えないでください。");
   out.push("「条件次第」の項目は断定せず、足りない情報を最大3つまで質問してください。読み取った条件が相談内容と違う場合は、そのことを伝えて確認してください。");
+  out.push("答え方: 相談者が聞いた設備・届出の結論と根拠を最初に書きます。「必要」を「可能性がある」などと弱めず、条文の条件（「地階・無窓階」は地階又は無窓階）を言い換えないでください。聞かれていない項目は「必要」のものを一文ずつ、「条件次第」のものはまとめて一文で触れ、「不要」の項目は省きます。このメモの見出しや箇条書きをそのまま写さず、相談者に向けた文章にしてください。");
   const f = r.facts;
   const cond = [
     f.occupancy && `用途 令別表第一${f.occupancy.replace(/^(\d{1,2}(?:の[23])?)(.*)$/, "($1)項$2")}`,
@@ -206,8 +238,15 @@ export function rulesNote(r: RulesResult): string {
     out.push("届出書の作成・提出の代行は行政書士の業務です。記入内容や記入例は書かず、必要なら行政書士への依頼を案内してください。");
   }
   if (r.install.length) {
-    out.push("## 消防用設備等・防火管理者（消防法施行令と条例）");
-    for (const x of r.install) out.push(line(EQUIPMENT_LABEL[x.equipment], x, x.detail ? `（${x.detail}）` : x.scope ? `（${x.scope}）` : ""));
+    const fmt = (x: Verdict) => line(EQUIPMENT_LABEL[x.equipment], x, x.detail ? `（${x.detail}）` : x.scope ? `（${x.scope}）` : "");
+    const asked = r.install.filter((x) => r.asked.includes(x.equipment));
+    const others = r.install.filter((x) => !r.asked.includes(x.equipment));
+    if (asked.length) {
+      out.push("## 相談者が聞いている設備（この結論を最初に書く）");
+      for (const x of asked) out.push(fmt(x));
+      if (others.length) out.push("## そのほかの設備・防火管理者（必要なものを短く添える）");
+    } else out.push("## 消防用設備等・防火管理者（消防法施行令と条例）");
+    for (const x of others) out.push(fmt(x));
     out.push("総務省令の除外・令第32条の特例はこの判定に含まれていません（条例の上乗せは、判定に入っている管轄だけ根拠欄に条例を示しています）。最終的な判断は所轄の消防署が行う旨を添えてください。");
   }
   return out.join("\n");
