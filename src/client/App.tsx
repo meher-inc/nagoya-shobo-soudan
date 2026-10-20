@@ -239,6 +239,7 @@ export function App({ initialMe }: { initialMe: Me }) {
         <div class="brand" data-testid="brand">
           <img src="/icon.svg" alt="" />
           {SERVICE.shortName}
+          <span class="brand-area">{SERVICE.area}</span>
         </div>
         <div class="right">
           {me.user ? (

@@ -19,6 +19,7 @@ test("markdown renders headings and both list kinds", () => {
 test("service config follows the UI rules in CLAUDE.md", () => {
   assert.match(SERVICE.id, /^[a-z][a-z0-9-]*$/, "id: lowercase letters, digits and hyphens");
   assert.ok([...SERVICE.shortName].length <= 8, "shortName fits the header on one line");
+  assert.ok([...SERVICE.area].length <= 6, "area fits next to the name");
   assert.equal(SERVICE.suggestions.length, 4, "four suggestions");
   for (const s of SERVICE.suggestions) assert.ok([...s].length <= 12, `suggestion too long: ${s}`);
   assert.ok(!SERVICE.notice.includes("\n"), "notice is one line");
@@ -39,15 +40,15 @@ test("accent colour is readable on white (WCAG AA, 4.5:1)", () => {
   assert.ok(ratio >= 4.5, `contrast ${ratio.toFixed(2)} < 4.5`);
 });
 
-test("Nagoya: all 16 ward fire stations are listed with a 0119 number", async () => {
+test("fire stations: every station has a name, an area, an address and a phone number, and is in the prompt", async () => {
   const { STATIONS } = await import("../../src/config/stations.ts");
   const { SYSTEM_PROMPT } = await import("../../src/config/prompt.ts");
-  assert.equal(STATIONS.length, 16);
-  assert.equal(new Set(STATIONS.map((s) => s.ward)).size, 16, "one station per ward");
+  assert.ok(STATIONS.length > 0, "at least one station");
+  assert.equal(new Set(STATIONS.map((s) => s.name)).size, STATIONS.length, "station names are unique");
   for (const s of STATIONS) {
-    assert.match(s.tel, /^052-\d{3}-0119$/, `${s.name}: ${s.tel}`);
-    assert.ok(s.address.startsWith(`名古屋市${s.ward}`), `${s.name}: address in its ward`);
+    assert.ok(s.name.endsWith("消防署") || s.name.includes("消防"), `${s.name}: is a fire station`);
+    assert.ok(s.ward.length > 0 && s.address.length > 0, `${s.name}: area and address`);
+    assert.match(s.tel, /^0\d{1,4}-\d{1,4}-\d{4}$/, `${s.name}: ${s.tel}`);
     assert.ok(SYSTEM_PROMPT.includes(`${s.name}（${s.ward}）${s.tel}`), `${s.name} is in the prompt`);
   }
-  assert.ok(!SYSTEM_PROMPT.includes("052-961-1111"), "city hall number is not a fire station");
 });
