@@ -4,6 +4,8 @@ export interface Env {
   ASSETS: Fetcher;
   CHAT_LIMITER: RateLimit;
   AI_MODEL: string;
+  /** "1" で設置義務・届出の要否をルールで判定し、結果を回答の前提として渡す（src/rules） */
+  RULES_ENABLED?: string;
   /** e.g. https://example.todokede.jp. Pages use it for canonical URLs; workers.dev redirects to it. */
   CANONICAL_ORIGIN?: string;
   STRIPE_API_BASE: string;

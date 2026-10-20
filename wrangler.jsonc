@@ -37,7 +37,9 @@
     "AI_MODEL": "@cf/google/gemma-4-26b-a4b-it",
     // 差し替え: 独自ドメインを接続したら https://<host> にする
     "CANONICAL_ORIGIN": "https://nagoya-shobo-soudan.shun-maruoka.workers.dev",
-    "STRIPE_API_BASE": "https://api.stripe.com"
+    "STRIPE_API_BASE": "https://api.stripe.com",
+    // 設置義務・届出の要否を条文どおりのルールで判定して回答に渡す（src/rules）。初回公開前なので有効
+    "RULES_ENABLED": "1"
   },
   // Local tests without Cloudflare credentials: same bindings minus Workers AI (answers come from AI_MOCK).
   // Bindings are not inherited by environments, so D1 and the rate limiter are repeated here.
@@ -45,7 +47,7 @@
     "mock": {
       "d1_databases": [{ "binding": "DB", "database_name": "nagoya-shobo-soudan", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }],
       "ratelimits": [{ "name": "CHAT_LIMITER", "namespace_id": "6761", "simple": { "limit": 20, "period": 60 } }],
-      "vars": { "AI_MODEL": "mock", "CANONICAL_ORIGIN": "http://localhost:8787", "STRIPE_API_BASE": "https://api.stripe.com" }
+      "vars": { "AI_MODEL": "mock", "CANONICAL_ORIGIN": "http://localhost:8787", "STRIPE_API_BASE": "https://api.stripe.com", "RULES_ENABLED": "1" }
     }
   }
 }

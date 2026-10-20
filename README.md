@@ -96,3 +96,10 @@ npx wrangler secret put STRIPE_WEBHOOK_SECRET
 ## 独自ドメイン
 
 nagoya.todokede.jp などのサブドメインにする場合は、京都版と同じ Cloudflare for SaaS のゾーンにカスタムホスト名を追加し、DNS に CNAME と TXT を登録します（手順は京都版の `docs/domain-setup.md`）。接続後に `wrangler.jsonc` の `CANONICAL_ORIGIN` を `https://<host>` に変えると、workers.dev のページは 301 で転送されます。
+
+## 設置義務・届出のルール判定（src/rules）
+
+設置義務（消防法施行令）と届出の要否・期限（名古屋市火災予防条例・消防法等施行細則）を条文どおりに決定的に判定し、結果を「判定メモ」としてシステムプロンプトに渡す。モデルは結論を変えずに説明だけをする。入力が足りない項目は「条件次第」とし、足りない情報を質問させる。
+
+- `src/rules/` と `eval/` は京都版（kyoto-shobo-soudan）・東京版（shobo-soudan）と同じ内容。直すときは3つのリポジトリをそろえる
+- `RULES_ENABLED=1` で有効。テストは `pnpm run test:unit`（評価セット87問と照合）
