@@ -84,6 +84,10 @@ export function extractFacts(text: string): FilingFacts {
     f.hazmat_ratio = Math.round((num(amount) / unit) * 1000) / 1000;
   }
   if (/[2２二]つの区|複数の区|区をまたが|2以上の区/.test(t)) f.multi_ward = true;
+  if (/準耐火建築物/.test(t)) f.building_class = "quasi_fireproof";
+  else if (/耐火建築物/.test(t)) f.building_class = "fireproof";
+  const height = t.match(/高さ(?:が|は)?\s*([\d.]+)\s*(?:m|メートル)/);
+  if (height) f.height = num(height[1]);
   const stairs = t.match(/階段が?\s*(\d|一|二|1つ|2つ|ひとつ|ふたつ)/);
   if (stairs) f.direct_stairs = /^(1|一|1つ|ひとつ)$/.test(stairs[1]) ? 1 : 2;
   return f;
@@ -107,6 +111,8 @@ export function detectScenes(text: string): Scene[] {
 }
 
 const INSTALL_FOR_NOTE: Equipment[] = ["fire_manager", "extinguisher", "indoor_hydrant", "sprinkler", "auto_alarm", "emergency_alarm", "guide_light"];
+// 大規模な建物で必要になる設備。必要か条件次第のときだけ判定メモに載せる
+const INSTALL_LARGE: Equipment[] = ["fire_report", "outdoor_hydrant", "fire_water", "smoke_control", "standpipe", "emergency_outlet"];
 
 const RESULT_JA = { required: "必要", not_required: "不要", conditional: "条件次第" } as const;
 
@@ -134,6 +140,10 @@ const MISSING_JA: Record<string, string> = {
   stall_fire: "露店で火気を使うか",
   exhibition_hall: "観覧場・展示場で行うか",
   has_duct: "厨房設備に排気用ダクトがあるか",
+  building_class: "耐火建築物か準耐火建築物か",
+  lower_floors_area: "1階と2階の床面積の合計",
+  site_area: "敷地面積",
+  height: "建物の高さ",
   personal_use: "個人的な使用か（人に使わせるか）",
   facility: "設ける設備の種類",
 };
@@ -152,7 +162,9 @@ export function runRules(jurisdiction: Jurisdiction, userTexts: string[]): Rules
   const latest = userTexts.at(-1) ?? "";
   const scenes = detectScenes(latest).length ? detectScenes(latest) : detectScenes(userTexts.join("\n"));
   if (!facts.occupancy && !scenes.length) return null;
-  const install = facts.occupancy ? INSTALL_FOR_NOTE.map((e) => judge(e, facts as Facts)) : [];
+  const install = facts.occupancy
+    ? [...INSTALL_FOR_NOTE.map((e) => judge(e, facts as Facts, jurisdiction)), ...INSTALL_LARGE.map((e) => judge(e, facts as Facts, jurisdiction)).filter((v) => v.result !== "not_required")]
+    : [];
   const filings = scenes.flatMap((s) => judgeFilings(jurisdiction, s, facts));
   return { facts, scenes, install, filings };
 }
@@ -177,9 +189,9 @@ export function rulesNote(r: RulesResult): string {
     out.push("届出書の作成・提出の代行は行政書士の業務です。記入内容や記入例は書かず、必要なら行政書士への依頼を案内してください。");
   }
   if (r.install.length) {
-    out.push("## 消防用設備等・防火管理者（消防法施行令）");
+    out.push("## 消防用設備等・防火管理者（消防法施行令と条例）");
     for (const x of r.install) out.push(line(EQUIPMENT_LABEL[x.equipment], x, x.detail ? `（${x.detail}）` : x.scope ? `（${x.scope}）` : ""));
-    out.push("条例による上乗せや、総務省令の除外・令第32条の特例はこの判定に含まれていません。最終的な判断は所轄の消防署が行う旨を添えてください。");
+    out.push("総務省令の除外・令第32条の特例はこの判定に含まれていません（条例の上乗せは、判定に入っている管轄だけ根拠欄に条例を示しています）。最終的な判断は所轄の消防署が行う旨を添えてください。");
   }
   return out.join("\n");
 }
