@@ -1,5 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { SERVICE } from "../../src/config/service";
+import { CONSENT_VERSION } from "../../src/shared/consent";
+
+const TERMS_NOTICE = `第三者の氏名・住所などは入力しないでください。送信すると利用規約とプライバシーポリシーに同意したものとみなします。${SERVICE.notice}`;
 
 const uniqueEmail = (tag: string) => `${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}@example.com`;
 const priceYen = `${SERVICE.price.amount.toLocaleString("ja-JP")}円`;
@@ -28,7 +31,8 @@ test.beforeEach(async ({ page, context }) => {
   page.on("pageerror", (e) => errors.push(e.message));
   // 402/429 are handled responses (paywall, trial limit) that the browser still logs.
   // Linux builds of WebKit (CI) warn about the viewport's interactive-widget key, which they do not support.
-  const expected = /favicon|status of (402|429)|Viewport argument key "interactive-widget"/;
+  // WebKit logs a postMessage warning from the invisible Turnstile iframe after the widget is removed (staging only).
+  const expected = /favicon|status of (402|429)|Viewport argument key "interactive-widget"|Unable to post message to https:\/\/challenges\.cloudflare\.com/;
   page.on("console", (m) => m.type() === "error" && !expected.test(m.text()) && errors.push(m.text()));
   (page as Page & { __errors: string[] }).__errors = errors;
 });
@@ -78,7 +82,7 @@ test("no catch copy: the first screen shows only the brand, suggestions and the 
   await page.goto("/");
   await expect(page.getByTestId("composer-input")).toBeVisible();
   await expect(page.locator("h1, h2")).toHaveCount(0);
-  const allowed = new Set<string>([SERVICE.shortName, SERVICE.notice, ...SERVICE.suggestions]);
+  const allowed = new Set<string>([SERVICE.shortName, TERMS_NOTICE, ...SERVICE.suggestions]);
   const lines = (await page.locator(".app").innerText())
     .split("\n")
     .map((l) => l.trim())
@@ -320,13 +324,18 @@ test("after the trial the paywall appears and Stripe checkout unlocks the servic
   await ask(page, "課金後の質問");
 });
 
-test("anonymous trials are limited per IP, then login is offered @local", async ({ page, playwright, baseURL }) => {
+test("anonymous use is limited per IP per day, then login is offered @test-login", async ({ page, playwright, baseURL }) => {
   const ip = testIp();
-  for (let i = 0; i < SERVICE.anonTrialsPerIp; i++) {
+  // Clearing cookies starts a new anonymous user, but the same IP is counted together.
+  const perClient = SERVICE.anonMessagesPerIpPerDay / 4;
+  for (let i = 0; i < 4; i++) {
     const client = await playwright.request.newContext({ baseURL, extraHTTPHeaders: { "x-test-ip": ip } });
-    const res = await client.post("/api/chat", { data: { message: "上限の確認" } });
-    expect(res.status()).toBe(200);
-    await res.body();
+    for (let j = 0; j < perClient; j++) {
+      // staging uses the Turnstile test keys, which accept any token; locally Turnstile is off
+      const res = await client.post("/api/chat", { data: { message: "上限の確認", terms: CONSENT_VERSION, turnstile: "XXXX.DUMMY.TOKEN.XXXX" } });
+      expect(res.status()).toBe(200);
+      await res.body();
+    }
     await client.dispose();
   }
   await page.context().setExtraHTTPHeaders({ "x-test-ip": ip });
@@ -334,7 +343,29 @@ test("anonymous trials are limited per IP, then login is offered @local", async 
   await page.getByTestId("composer-input").fill("上限を超えた新しい端末");
   await page.getByTestId("send-button").click();
   await expect(page.getByTestId("login-sheet")).toBeVisible();
+  await expect(page.getByTestId("login-sheet")).toContainText("本日の上限");
   await expect(page.getByTestId("composer-input")).toHaveValue("上限を超えた新しい端末");
+  // Signing in lifts the per-IP cap on the same network.
+  await login(page);
+  await ask(page, "ログイン後の相談");
+});
+
+test("the composer shows the third-party notice and that sending means agreeing to the terms", async ({ page }) => {
+  await page.goto("/");
+  const notice = page.getByTestId("terms-notice");
+  await expect(notice).toHaveText(TERMS_NOTICE);
+  await expect(notice.getByRole("link", { name: "利用規約" })).toHaveAttribute("href", "https://services.todokede.jp/legal/terms/nagoya-shobo-soudan");
+  await expect(notice.getByRole("link", { name: "プライバシーポリシー" })).toHaveAttribute("href", "https://services.todokede.jp/legal/privacy#nagoya-shobo-soudan");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("a send without the current terms version is refused and creates no user", async ({ request }) => {
+  for (const terms of [undefined, "2026-01-01"]) {
+    const res = await request.post("/api/chat", { data: { message: "消火器", terms } });
+    expect(res.status()).toBe(428);
+    expect((await res.json()).error).toBe("terms_outdated");
+  }
+  expect((await (await request.get("/api/me")).json()).hasSession).toBe(false);
 });
 
 test("Google login redirects to Google with PKCE and state; checkout requires login @local", async ({ request }) => {
@@ -376,23 +407,25 @@ test("cross-origin API writes are rejected", async ({ request }) => {
   expect(res.status()).toBe(403);
 });
 
-for (const [path, heading] of [
-  ["/legal/terms", "利用規約"],
-  ["/legal/privacy", "プライバシーポリシー"],
-  ["/legal/tokushoho", "特定商取引法に基づく表記"],
-] as const) {
-  test(`legal page ${path} renders from the service config`, async ({ page }) => {
-    await page.goto(path);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText(heading);
-    await expect(page.getByRole("link", { name: "相談に戻る" })).toBeVisible();
-    await expect(page.locator(".legal")).toContainText(SERVICE.seller.name);
-    if (path === "/legal/tokushoho") {
-      await expect(page.locator(".legal")).toContainText(SERVICE.seller.address);
-      await expect(page.locator(".legal")).toContainText(SERVICE.price.label);
-    }
-    if (path === "/legal/terms") await expect(page.locator(".legal")).toContainText(SERVICE.name);
-  });
-}
+test("legal page /legal/tokushoho renders from the service config", async ({ page }) => {
+  await page.goto("/legal/tokushoho");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("特定商取引法に基づく表記");
+  await expect(page.getByRole("link", { name: "相談に戻る" })).toBeVisible();
+  await expect(page.locator(".legal")).toContainText(SERVICE.seller.name);
+  await expect(page.locator(".legal")).toContainText(SERVICE.seller.address);
+  await expect(page.locator(".legal")).toContainText(SERVICE.price.label);
+});
+
+test("the old terms and privacy URLs move to services.todokede.jp", async ({ request }) => {
+  for (const [path, to] of [
+    ["/legal/terms", "https://services.todokede.jp/legal/terms/nagoya-shobo-soudan"],
+    ["/legal/privacy", "https://services.todokede.jp/legal/privacy#nagoya-shobo-soudan"],
+  ]) {
+    const res = await request.get(path, { maxRedirects: 0 });
+    expect(res.status()).toBe(301);
+    expect(res.headers().location).toBe(to);
+  }
+});
 
 test("home page carries search metadata without visible copy", async ({ page, request }) => {
   await page.goto("/");

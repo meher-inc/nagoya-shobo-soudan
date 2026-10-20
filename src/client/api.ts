@@ -1,3 +1,5 @@
+import { CONSENT_VERSION } from "../shared/consent";
+
 export type Access = "trial" | "paid" | "expired";
 
 export interface Me {
@@ -7,6 +9,8 @@ export interface Me {
   trialEndsAt: number | null;
   loginAvailable: boolean;
   billingAvailable: boolean;
+  /** Invisible Turnstile site key, sent only before anonymous use starts. */
+  turnstileSiteKey: string | null;
 }
 
 export interface ChatMessage {
@@ -47,11 +51,13 @@ export async function streamChat(
   conversationId: string | null,
   onChunk: (text: string) => void,
   signal: AbortSignal,
+  turnstile?: string | null,
 ): Promise<string> {
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ message, conversationId }),
+    // terms: the version of the notice under the composer this screen showed (sending counts as agreeing to it)
+    body: JSON.stringify({ message, conversationId, terms: CONSENT_VERSION, turnstile: turnstile ?? undefined }),
     signal,
   });
   if (!res.ok || !res.body) {
@@ -102,4 +108,13 @@ export async function openPortal(): Promise<string> {
 
 export async function logout(): Promise<void> {
   await fetch("/auth/logout", { method: "POST" });
+}
+
+/** Deletes the account and its history; an active plan is cancelled immediately. */
+export async function deleteAccount(): Promise<void> {
+  const res = await fetch("/api/account", { method: "DELETE" });
+  if (!res.ok) {
+    const b = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new ApiError(res.status, b.error ?? "delete_failed");
+  }
 }

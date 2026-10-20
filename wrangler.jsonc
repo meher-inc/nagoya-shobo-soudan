@@ -12,7 +12,7 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/", "/index.html", "/api/*", "/auth/*", "/legal/*", "/robots.txt", "/sitemap.xml"]
+    "run_worker_first": ["/", "/index.html", "/api/*", "/auth/*", "/legal/*", "/admin", "/robots.txt", "/sitemap.xml"]
   },
   "d1_databases": [
     {
@@ -24,6 +24,8 @@
     }
   ],
   "ai": { "binding": "AI", "remote": true },
+  // 毎日 03:00 JST: IP 単位の上限の記録と鍵（2 日）、退会者の記録（3 年）を消す
+  "triggers": { "crons": ["0 18 * * *"] },
   "ratelimits": [
     {
       "name": "CHAT_LIMITER",
@@ -39,15 +41,40 @@
     "CANONICAL_ORIGIN": "https://nagoya-shobo-soudan.shun-maruoka.workers.dev",
     "STRIPE_API_BASE": "https://api.stripe.com",
     // 設置義務・届出の要否を条文どおりのルールで判定して回答に渡す（src/rules）。初回公開前なので有効
-    "RULES_ENABLED": "1"
+    "RULES_ENABLED": "1",
+    // /admin（日別の利用）を見られる Google アカウント
+    "ADMIN_EMAILS": "s.maru0714@gmail.com"
   },
   // Local tests without Cloudflare credentials: same bindings minus Workers AI (answers come from AI_MOCK).
   // Bindings are not inherited by environments, so D1 and the rate limiter are repeated here.
   "env": {
+    // 検証用（staging）。利用者データは別 DB。定期実行なし・本番のドメインなし。
+    // テスト用ログイン（E2E_MODE）は staging と localhost だけで有効。本番の設定には入れない
+    "staging": {
+      "name": "nagoya-shobo-soudan-staging",
+      "workers_dev": true,
+      "preview_urls": true,
+      "d1_databases": [{ "binding": "DB", "database_name": "nagoya-shobo-soudan-staging", "database_id": "b390e066-1a18-43b1-9bbf-a0c855695135", "migrations_dir": "migrations" }],
+      "ai": { "binding": "AI" },
+      "ratelimits": [{ "name": "CHAT_LIMITER", "namespace_id": "6762", "simple": { "limit": 20, "period": 60 } }],
+      "triggers": { "crons": [] },
+      "vars": {
+        "AI_MODEL": "@cf/google/gemma-4-26b-a4b-it",
+        "STRIPE_API_BASE": "https://api.stripe.com",
+        "RULES_ENABLED": "1",
+        "ADMIN_EMAILS": "s.maru0714@gmail.com",
+        "ENV_NAME": "staging",
+        "E2E_MODE": "1",
+        "AI_MOCK": "1",
+        // Cloudflare が公開しているテスト用のキー（見えないモード・常に成功）。本番のキーは管理画面でシークレットとして登録する
+        "TURNSTILE_SITEKEY": "1x00000000000000000000BB",
+        "TURNSTILE_SECRET": "1x0000000000000000000000000000000AA"
+      }
+    },
     "mock": {
       "d1_databases": [{ "binding": "DB", "database_name": "nagoya-shobo-soudan", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }],
       "ratelimits": [{ "name": "CHAT_LIMITER", "namespace_id": "6761", "simple": { "limit": 20, "period": 60 } }],
-      "vars": { "AI_MODEL": "mock", "CANONICAL_ORIGIN": "http://localhost:8787", "STRIPE_API_BASE": "https://api.stripe.com", "RULES_ENABLED": "1" }
+      "vars": { "AI_MODEL": "mock", "CANONICAL_ORIGIN": "http://localhost:8787", "STRIPE_API_BASE": "https://api.stripe.com", "RULES_ENABLED": "1", "ADMIN_EMAILS": "s.maru0714@gmail.com" }
     }
   }
 }

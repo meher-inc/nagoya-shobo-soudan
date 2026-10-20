@@ -7,6 +7,8 @@ const PORT = Number(process.env.STRIPE_MOCK_PORT ?? 12111);
 const WORKER = process.env.WORKER_ORIGIN ?? "http://localhost:8787";
 const SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "whsec_e2e";
 const sessions = new Map();
+// customer id -> subscriptions ({ id, status })
+const subscriptions = new Map();
 
 function sign(payload) {
   const t = Math.floor(Date.now() / 1000);
@@ -51,6 +53,29 @@ createServer(async (req, res) => {
     res.end(JSON.stringify({ url: `http://localhost:${PORT}/portal` }));
     return;
   }
+  if (req.method === "GET" && url.pathname === "/v1/subscriptions") {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ data: (subscriptions.get(url.searchParams.get("customer")) ?? []).map(({ id, status }) => ({ id, status })) }));
+    return;
+  }
+  const cancel = url.pathname.match(/^\/v1\/subscriptions\/(sub_\w+)$/);
+  if (req.method === "DELETE" && cancel) {
+    const sub = [...subscriptions.values()].flat().find((s) => s.id === cancel[1]);
+    if (!sub) {
+      res.writeHead(404).end("{}");
+      return;
+    }
+    sub.status = "canceled";
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify(sub));
+    return;
+  }
+  // Test-only view of a customer's subscriptions (to check that leaving cancels the plan).
+  if (req.method === "GET" && url.pathname === "/test/subscriptions") {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify([...subscriptions.values()].flat().filter((s) => s.email === url.searchParams.get("email"))));
+    return;
+  }
   const pay = url.pathname.match(/^\/pay\/(cs_test_\w+)$/);
   if (req.method === "GET" && pay) {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -64,6 +89,7 @@ createServer(async (req, res) => {
       return;
     }
     const customer = `cus_${Math.random().toString(36).slice(2)}`;
+    subscriptions.set(customer, [{ id: `sub_${customer}`, status: "active", email: s.customer_email }]);
     await sendEvent("checkout.session.completed", { id: pay[1], client_reference_id: s.client_reference_id, customer });
     await sendEvent("customer.subscription.created", {
       id: `sub_${customer}`,

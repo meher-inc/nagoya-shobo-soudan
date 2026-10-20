@@ -18,6 +18,8 @@ const testVars = [
 
 // BASE_URL=https://... runs the tests that need no local-only endpoints against a deployment.
 const remote = process.env.BASE_URL;
+// STAGING=1 with BASE_URL: the staging Worker has the test login, so tests tagged @test-login also run there.
+const staging = Boolean(remote && process.env.STAGING);
 // With Cloudflare credentials the tests tagged @real-ai call the real Workers AI model.
 // Without them the worker runs in the "mock" environment (no AI binding) and those tests are skipped.
 const realAi = Boolean(process.env.CLOUDFLARE_API_TOKEN);
@@ -28,7 +30,7 @@ const chromium = chromiumPath ? { launchOptions: { executablePath: chromiumPath 
 
 // `pnpm screenshots` sets SCREENSHOTS=1 to run only the capture for docs/DESIGN.md.
 const screenshots = Boolean(process.env.SCREENSHOTS);
-const skip = [remote && "@local", !realAi && "@real-ai", !screenshots && "@screenshots"].filter(Boolean).join("|");
+const skip = [remote && "@local", remote && !staging && "@test-login", !realAi && "@real-ai", !screenshots && "@screenshots"].filter(Boolean).join("|");
 
 export default defineConfig({
   testDir: "tests/e2e",

@@ -1,16 +1,17 @@
 import { Hono } from "hono";
-import type { AppEnv, Env } from "./env";
+import type { AppEnv, Env, User } from "./env";
+import { countMetric } from "./protect";
 
 export const billing = new Hono<AppEnv>();
 
-async function stripe(env: Env, path: string, params: Record<string, string>) {
+async function stripe(env: Env, path: string, params: Record<string, string>, method = "POST") {
   const res = await fetch(`${env.STRIPE_API_BASE}/v1/${path}`, {
-    method: "POST",
+    method,
     headers: {
       authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
       "content-type": "application/x-www-form-urlencoded",
     },
-    body: new URLSearchParams(params),
+    body: method === "GET" ? undefined : new URLSearchParams(params),
   });
   const body = (await res.json()) as Record<string, unknown>;
   if (!res.ok) throw new Error(`Stripe ${path} ${res.status}`);
@@ -89,6 +90,7 @@ stripeWebhook.post("/", async (c) => {
   if (inserted.meta.changes === 0) return c.json({ received: true, duplicate: true });
 
   const db = c.env.DB;
+  if (event.type === "customer.subscription.created") await countMetric(c.env, "subscription_start");
   if (event.type === "checkout.session.completed") {
     const s = event.data.object as { client_reference_id?: string; customer?: string };
     if (s.client_reference_id && s.customer) {
@@ -114,3 +116,13 @@ stripeWebhook.post("/", async (c) => {
   }
   return c.json({ received: true });
 });
+
+/** 退会時: 継続中の月額プランを直ちに解約する（日割りの返金はしない）。解約できなかった場合は例外 */
+export async function cancelSubscriptions(env: Env, user: User) {
+  if (!user.stripe_customer_id || !env.STRIPE_SECRET_KEY) return;
+  const q = new URLSearchParams({ customer: user.stripe_customer_id, status: "all", limit: "20" });
+  const list = (await stripe(env, `subscriptions?${q}`, {}, "GET")) as { data?: { id: string; status: string }[] };
+  for (const sub of list.data ?? []) {
+    if (["active", "trialing", "past_due", "unpaid", "incomplete"].includes(sub.status)) await stripe(env, `subscriptions/${sub.id}`, {}, "DELETE");
+  }
+}
