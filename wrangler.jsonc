@@ -8,6 +8,11 @@
   "observability": { "enabled": true },
   // Tokyo fire consultation measured at most 184 ms CPU per streamed answer.
   "limits": { "cpu_ms": 500 },
+  // nagoya.todokede.jp（Cloudflare for SaaS のカスタムホスト名。SaaS ゾーン meher-edge.com は MeHer の共通基盤）だけをこの Worker に向ける。
+  // ゾーン全体（*/*）は他サービス・他都市でも使うため割り当てない。手順は京都版の docs/domain-setup.md
+  "routes": [{ "pattern": "nagoya.todokede.jp/*", "zone_name": "meher-edge.com" }],
+  // ルートを設定しても workers.dev は残す（正規ドメインへの 301 転送のため）
+  "workers_dev": true,
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
@@ -45,6 +50,7 @@
   // Bindings are not inherited by environments, so D1 and the rate limiter are repeated here.
   "env": {
     "mock": {
+      "routes": [],
       "d1_databases": [{ "binding": "DB", "database_name": "nagoya-shobo-soudan", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }],
       "ratelimits": [{ "name": "CHAT_LIMITER", "namespace_id": "6761", "simple": { "limit": 20, "period": 60 } }],
       "vars": { "AI_MODEL": "mock", "CANONICAL_ORIGIN": "http://localhost:8787", "STRIPE_API_BASE": "https://api.stripe.com", "RULES_ENABLED": "1" }
