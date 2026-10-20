@@ -2,7 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 import { SERVICE } from "../../src/config/service";
 
 const uniqueEmail = (tag: string) => `${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}@example.com`;
-const priceYen = `${SERVICE.price.amount.toLocaleString("ja-JP")}円`;
 
 async function login(page: Page, email = uniqueEmail("u")) {
   await page.goto(`/auth/test-login?email=${encodeURIComponent(email)}&next=/`);
@@ -26,9 +25,9 @@ test.beforeEach(async ({ page, context }) => {
   await context.setExtraHTTPHeaders({ "x-test-ip": testIp() });
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  // 402/429 are handled responses (paywall, trial limit) that the browser still logs.
+  // 429 is a handled response (per-IP anonymous limit, rate limit) that the browser still logs.
   // Linux builds of WebKit (CI) warn about the viewport's interactive-widget key, which they do not support.
-  const expected = /favicon|status of (402|429)|Viewport argument key "interactive-widget"/;
+  const expected = /favicon|status of 429|Viewport argument key "interactive-widget"/;
   page.on("console", (m) => m.type() === "error" && !expected.test(m.text()) && errors.push(m.text()));
   (page as Page & { __errors: string[] }).__errors = errors;
 });
@@ -162,13 +161,13 @@ test("anonymous user can consult immediately without logging in @local", async (
   const reply = page.getByTestId("msg-assistant").first();
   await expect(reply.getByRole("button", { name: "コピー" })).toBeVisible({ timeout: 60_000 });
   expect(((await reply.textContent()) ?? "").length).toBeGreaterThan(20);
-  const hours = SERVICE.trialHours;
-  await expect(page.getByTestId("trial-badge")).toContainText(new RegExp(`無料 残り(${hours - 1}|${hours})時間`));
+  await expect(page.getByTestId("trial-badge")).toHaveCount(0);
 
   const me = await (await page.request.get("/api/me")).json();
   expect(me.user).toBeNull();
   expect(me.hasSession).toBe(true);
-  expect(me.access).toBe("trial");
+  expect(me.access).toBe("free");
+  expect(me).not.toHaveProperty("trialEndsAt");
 
   // History survives a reload without an account.
   await page.reload();
@@ -246,19 +245,17 @@ test("sheet closes with Escape", async ({ page }) => {
 });
 
 // ---------------------------------------------------------------------------
-// Google 認証のみ・無料期間・サブスク
+// Google 認証のみ・相談は無料・以前の登録者の解約
 // ---------------------------------------------------------------------------
 
-test("signing in with Google keeps anonymous history and does not extend the trial @local", async ({ page }) => {
+test("signing in with Google keeps anonymous history @local", async ({ page }) => {
   await page.goto("/");
   await ask(page, "引き継ぎの確認");
-  const before = await (await page.request.get("/api/me")).json();
-  expect(before.trialEndsAt).toBeTruthy();
 
   await page.goto(`/auth/test-login?email=${uniqueEmail("adopt")}&next=/`);
   const after = await (await page.request.get("/api/me")).json();
   expect(after.user).not.toBeNull();
-  expect(after.trialEndsAt).toBe(before.trialEndsAt);
+  expect(after.access).toBe("free");
   await page.getByTestId("menu-button").click();
   await expect(page.getByTestId("history-item")).toHaveCount(1);
   await expect(page.getByTestId("history-item").first()).toContainText("引き継ぎ");
@@ -272,76 +269,62 @@ test("the menu offers Google as the only way to sign in", async ({ page }) => {
   await expect(sheet.locator('input[type="password"], input[type="email"]')).toHaveCount(0);
 });
 
-test("after an anonymous trial, paying requires Google login and then unlocks @local", async ({ page }) => {
+test("consulting stays free after the former 24-hour free period, without a paywall @local", async ({ page }) => {
   await page.goto("/");
   await ask(page, "無料期間の確認");
   expect((await page.request.post("/api/test/expire-trial")).ok()).toBeTruthy();
   await page.reload();
-  await page.getByTestId("composer-input").fill("続けて質問します");
-  await page.getByTestId("send-button").click();
-  const paywall = page.getByTestId("paywall-sheet");
-  await expect(paywall).toBeVisible();
-  await expect(paywall).toContainText(priceYen);
-  await expect(paywall.getByTestId("checkout-button")).toHaveCount(0);
-  await expect(paywall.getByTestId("paywall-login")).toBeEnabled();
-  expect((await page.request.post("/api/billing/checkout")).status()).toBe(401);
-
-  // Simulate the Google callback returning to the paywall.
-  await page.goto(`/auth/test-login?email=${uniqueEmail("pay")}&next=${encodeURIComponent("/?resume=paywall")}`);
-  await expect(page.getByTestId("paywall-sheet").getByTestId("checkout-button")).toBeVisible();
-  await page.getByTestId("checkout-button").click();
-  await expect(page).toHaveTitle("Mock Checkout");
-  await page.locator("#pay").click();
-  await expect(page.getByTestId("toast")).toContainText("お支払いが完了しました");
-  expect((await (await page.request.get("/api/me")).json()).access).toBe("paid");
-  await page.getByTestId("menu-button").click();
-  await expect(page.getByTestId("history-item")).toHaveCount(1);
-});
-
-test("after the trial the paywall appears and Stripe checkout unlocks the service @local", async ({ page }) => {
-  await login(page);
-  await ask(page, "課金前の質問");
-  expect((await page.request.post("/api/test/expire-trial")).ok()).toBeTruthy();
-  await page.reload();
+  const me = await (await page.request.get("/api/me")).json();
+  expect(me.access).toBe("free");
   await expect(page.getByTestId("trial-badge")).toHaveCount(0);
 
-  await page.getByTestId("composer-input").fill("課金後の質問");
-  await page.getByTestId("send-button").click();
-  const paywall = page.getByTestId("paywall-sheet");
-  await expect(paywall).toBeVisible();
-  await expect(paywall).toContainText(priceYen);
-  await expect(paywall).toContainText("税込");
-  await paywall.getByTestId("checkout-button").click();
-
-  await expect(page).toHaveTitle("Mock Checkout");
-  await page.locator("#pay").click();
-  await expect(page.getByTestId("toast")).toContainText("お支払いが完了しました");
-  expect((await (await page.request.get("/api/me")).json()).access).toBe("paid");
-  await ask(page, "課金後の質問");
+  await ask(page, "25時間後の質問です");
+  await expect(page.getByTestId("paywall-sheet")).toHaveCount(0);
+  await expect(page.getByTestId("msg-assistant")).toHaveCount(1);
 });
 
-test("the service creates its own Stripe price and webhook once, without manual IDs @local", async ({ page, playwright }) => {
-  // STRIPE_PRICE_ID and STRIPE_WEBHOOK_SECRET are not set in E2E: the checkout above only works if
-  // the worker found or created both by itself. Repeated checkouts must reuse them.
+test("a signed-in user can keep consulting after the former free period @local", async ({ page }) => {
   await login(page);
-  for (let i = 0; i < 2; i++) {
-    const res = await page.request.post("/api/billing/checkout");
-    expect(res.ok()).toBeTruthy();
-  }
-  const mock = await playwright.request.newContext({ baseURL: "http://localhost:12111" });
-  const state = await (await mock.get("/state")).json();
-  const key = `${SERVICE.id}-monthly-${SERVICE.price.amount}`;
-  expect(state.prices.filter((p: { lookup_key: string }) => p.lookup_key === key)).toEqual([
-    expect.objectContaining({ unit_amount: SERVICE.price.amount }),
-  ]);
-  expect(state.endpoints).toEqual([
-    {
-      url: "http://localhost:8787/api/stripe/webhook",
-      events: ["checkout.session.completed", "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"],
-    },
-  ]);
-  expect(state.deletedEndpoints).toBe(0);
-  await mock.dispose();
+  await ask(page, "1回目の質問");
+  expect((await page.request.post("/api/test/expire-trial")).ok()).toBeTruthy();
+  const res = await page.request.post("/api/chat", { data: { message: "期限後のAPI確認" } });
+  expect(res.status()).toBe(200);
+  await res.body();
+
+  await page.reload();
+  await ask(page, "画面からの2回目の質問");
+  await expect(page.getByTestId("paywall-sheet")).toHaveCount(0);
+  await page.getByTestId("menu-button").click();
+  const menu = page.getByTestId("menu-sheet");
+  await expect(menu).toBeVisible();
+  await expect(menu.getByTestId("plan-row")).toHaveCount(0);
+  await expect(menu.getByTestId("billing-portal")).toHaveCount(0);
+  await expect(menu).not.toContainText("月額");
+});
+
+test("new subscriptions are refused; checkout returns plan_discontinued @local", async ({ page, request }) => {
+  const anon = await request.post("/api/billing/checkout");
+  expect(anon.status()).toBe(410);
+  expect(await anon.json()).toEqual({ error: "plan_discontinued" });
+  await login(page);
+  const res = await page.request.post("/api/billing/checkout");
+  expect(res.status()).toBe(410);
+  expect(await res.json()).toEqual({ error: "plan_discontinued" });
+});
+
+test("an existing subscriber can still open the Customer Portal to cancel @local", async ({ page }) => {
+  await login(page);
+  expect((await page.request.post("/api/test/subscribe")).ok()).toBeTruthy();
+  await page.reload();
+  const me = await (await page.request.get("/api/me")).json();
+  expect(me.access).toBe("paid");
+  expect(me.billingPortal).toBe(true);
+  await page.getByTestId("menu-button").click();
+  const portal = page.getByTestId("menu-sheet").getByTestId("billing-portal");
+  await expect(portal).toHaveText("お支払い・解約の管理");
+  const res = await page.request.post("/api/billing/portal");
+  expect(res.ok()).toBeTruthy();
+  expect((await res.json()).url).toBe("http://localhost:12111/portal");
 });
 
 test("anonymous trials are limited per IP, then login is offered @local", async ({ page, playwright, baseURL }) => {
@@ -361,7 +344,7 @@ test("anonymous trials are limited per IP, then login is offered @local", async 
   await expect(page.getByTestId("composer-input")).toHaveValue("上限を超えた新しい端末");
 });
 
-test("Google login redirects to Google with PKCE and state; checkout requires login @local", async ({ request }) => {
+test("Google login redirects to Google with PKCE and state; checkout is closed @local", async ({ request }) => {
   const res = await request.get("/auth/google", { maxRedirects: 0 });
   expect(res.status()).toBe(302);
   const location = new URL(res.headers()["location"]);
@@ -372,7 +355,7 @@ test("Google login redirects to Google with PKCE and state; checkout requires lo
   expect(res.headers()["set-cookie"]).toMatch(/oauth=.*HttpOnly/i);
   const badCallback = await request.get("/auth/callback?code=x&state=wrong", { maxRedirects: 0 });
   expect(badCallback.headers()["location"]).toBe("/?login=failed");
-  expect((await request.post("/api/billing/checkout")).status()).toBe(401);
+  expect((await request.post("/api/billing/checkout")).status()).toBe(410);
 });
 
 test("logout returns to the signed-out state @local", async ({ page }) => {
@@ -412,9 +395,14 @@ for (const [path, heading] of [
     await expect(page.locator(".legal")).toContainText(SERVICE.seller.name);
     if (path === "/legal/tokushoho") {
       await expect(page.locator(".legal")).toContainText(SERVICE.seller.address);
-      await expect(page.locator(".legal")).toContainText(SERVICE.price.label);
+      await expect(page.locator(".legal")).toContainText("相談は無料です");
+      await expect(page.locator(".legal")).not.toContainText("980円");
     }
-    if (path === "/legal/terms") await expect(page.locator(".legal")).toContainText(SERVICE.name);
+    if (path === "/legal/terms") {
+      await expect(page.locator(".legal")).toContainText(SERVICE.name);
+      await expect(page.locator(".legal")).toContainText("相談は無料です");
+      await expect(page.locator(".legal")).not.toContainText("無料期間");
+    }
   });
 }
 
@@ -426,6 +414,10 @@ test("home page carries search metadata without visible copy", async ({ page, re
     .locator('script[type="application/ld+json"]')
     .evaluateAll((els) => els.map((e) => (JSON.parse(e.textContent ?? "{}") as { "@type": string })["@type"]));
   expect(types).toEqual(expect.arrayContaining(["WebSite", "WebApplication"]));
+  const offer = await page
+    .locator('script[type="application/ld+json"]')
+    .evaluateAll((els) => els.map((e) => JSON.parse(e.textContent ?? "{}") as { offers?: { price: number; priceCurrency: string } }).find((j) => j.offers)?.offers);
+  expect(offer).toEqual(expect.objectContaining({ price: 0, priceCurrency: "JPY" }));
   expect(await (await request.get("/robots.txt")).text()).toContain("Sitemap:");
   expect(await (await request.get("/sitemap.xml")).text()).toContain("<urlset");
 });

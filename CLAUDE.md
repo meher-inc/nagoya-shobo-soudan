@@ -14,8 +14,8 @@ MeHer株式会社が新しい Web サービスを作るときの土台。東京�
 4. **白ベースの Liquid Glass。** 背景は白。面は `.glass`（半透明の白・`backdrop-filter: blur(22px) saturate(180%)`・内側のハイライト・ポインタ追従の光）で作る。色は `src/config/service.ts` の `theme` だけで変える。
 5. **アニメーションをふんだんに使う。** 出現はスプリング（`--spring`）、退場は `--ease-out`。メッセージ・候補・シート・トースト・ボタンの押下・送信時の光沢・背景の光の移動はすべて動かす。`prefers-reduced-motion: reduce` では止める。
 6. **モバイルファースト。** 幅 393px（iPhone 15）で最初に確認する。横スクロールを出さない。セーフエリアを守る。入力欄は画面下、操作は親指の届く位置。
-7. **ログインは Google のみ。** メールとパスワードのフォームは作らない。ログインは無料期間が終わって課金するとき、または履歴を別の端末で見たいときだけ求める。
-8. **初回の相談から一定時間は無料、その後はサブスク。** 無料期間の開始と終了はサーバーで判定する（クライアントの時計を使わない）。期限後の API は 402 を返し、画面は課金シートを出す。決済は Stripe Checkout、解約とカード変更は Customer Portal。
+7. **ログインは Google のみ。** メールとパスワードのフォームは作らない。ログインは、履歴を別の端末で見たいとき、または有料のプランを使うときだけ求める。
+8. **相談は無料（1日の回数制限のみ）。** 有料は、過去の相談事例を読める会員（準備中）と、事業者向けのトドケデ AI プロ（非公開価格・問い合わせ型）。課金の開始と終了はサーバーで判定する（クライアントの時計を使わない）。決済は Stripe Checkout、解約とカード変更は Customer Portal。
 
 ### 変えてはいけないこと（基盤）
 
@@ -42,7 +42,7 @@ pnpm run test:e2e        # Chromium と WebKit（Pixel 7・iPhone 15・デスク
 
 | ファイル | 中身 |
 |---|---|
-| `src/config/service.ts` | 名前、検索向けの説明、入力欄の文言、質問の候補、注意書き、価格、無料時間、色、販売事業者 |
+| `src/config/service.ts` | 名前、検索向けの説明、入力欄の文言、質問の候補、注意書き、匿名利用の上限、色、販売事業者 |
 | `src/config/prompt.ts` | AI の役割・境界・基礎知識 |
 | `src/assets/icon.svg` | アイコン（色は `%ACCENT%` `%ACCENT2%` が theme に置き換わる） |
 | `wrangler.jsonc` の「差し替え」 | Worker 名、D1、レート制限の namespace、公開URL。`node scripts/setup-cloudflare.mjs` が書き換える |
@@ -61,10 +61,10 @@ pnpm run test:e2e        # Chromium と WebKit（Pixel 7・iPhone 15・デスク
 ```
 src/config/   サービスごとの値（service.ts, prompt.ts）
 src/client/   Preact の画面（App.tsx が相談画面、Legal.tsx が規約など）
-src/worker/   Hono の API（auth: Google OAuth, billing: Stripe, chat: Workers AI, session: 無料期間）
+src/worker/   Hono の API（auth: Google OAuth, billing: Stripe の解約・Webhook, chat: Workers AI, session: セッション）
 src/assets/   ビルド時に service.ts の値を入れて出力するファイル（icon.svg, offline.html）
 migrations/   D1 のスキーマ
-tests/e2e/    Playwright（相談・課金・認証・デザイン基準・PWA）
+tests/e2e/    Playwright（相談・無料での継続・解約の入口・認証・デザイン基準・PWA）
 tests/unit/   node:test（Markdown、設定値の検査、アクセント色のコントラスト）
 docs/         DESIGN.md とスクリーンショット
 ```

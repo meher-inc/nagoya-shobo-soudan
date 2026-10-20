@@ -1,32 +1,13 @@
 import { Hono } from "hono";
 import type { AppEnv, Env } from "./env";
-import { ensureWebhook, priceId, stripeApi, webhookSecrets } from "./stripe-setup";
+import { stripeApi, webhookSecrets } from "./stripe-setup";
 
 export const billing = new Hono<AppEnv>();
 
 const stripe = (env: Env, path: string, params: Record<string, string>) => stripeApi(env, "POST", path, params);
 
-billing.post("/checkout", async (c) => {
-  const user = c.get("user");
-  if (!user || user.is_anonymous) return c.json({ error: "login_required" }, 401);
-  if (!c.env.STRIPE_SECRET_KEY) return c.json({ error: "billing_unavailable" }, 503);
-  const origin = new URL(c.req.url).origin;
-  await ensureWebhook(c.env, c.env.CANONICAL_ORIGIN ?? origin);
-  const params: Record<string, string> = {
-    mode: "subscription",
-    "line_items[0][price]": await priceId(c.env),
-    "line_items[0][quantity]": "1",
-    client_reference_id: user.id,
-    "subscription_data[metadata][user_id]": user.id,
-    success_url: `${origin}/?billing=success`,
-    cancel_url: `${origin}/?billing=cancel`,
-    locale: "ja",
-  };
-  if (user.stripe_customer_id) params.customer = user.stripe_customer_id;
-  else params.customer_email = user.email;
-  const session = await stripe(c.env, "checkout/sessions", params);
-  return c.json({ url: session.url });
-});
+// 月額プランの新規登録は終了した（相談は無料）。以前からの登録者は /portal で解約とカード変更ができる。
+billing.post("/checkout", (c) => c.json({ error: "plan_discontinued" }, 410));
 
 billing.post("/portal", async (c) => {
   const user = c.get("user");

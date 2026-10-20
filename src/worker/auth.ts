@@ -36,8 +36,8 @@ async function upsertUser(
 }
 
 /**
- * Moves an anonymous trial's conversations to the signed-in account. The account keeps the
- * earlier trial start, so signing in never extends the free 24 hours.
+ * Moves an anonymous user's conversations to the signed-in account. The earlier first-consultation
+ * time is kept as a record only (nothing is gated on it since consultations became free).
  */
 async function adoptAnonymous(c: Context<AppEnv>, userId: string): Promise<void> {
   const anon = c.get("user");

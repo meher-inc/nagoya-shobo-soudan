@@ -45,12 +45,23 @@ app.route("/api/conversations", conversations);
 app.route("/api/billing", billing);
 app.route("/api/stripe/webhook", stripeWebhook);
 
-// Local E2E only: move the trial start back so the paywall can be exercised.
+// Local E2E only: move the first consultation back past the former 24-hour free period,
+// to check that nothing is gated on it any more.
 app.post("/api/test/expire-trial", async (c) => {
   const user = c.get("user");
   if (c.env.E2E_MODE !== "1" || !isLocal(c.req.url) || !user) return c.notFound();
   await c.env.DB.prepare("UPDATE users SET trial_started_at = ? WHERE id = ?")
-    .bind(Date.now() - (SERVICE.trialHours + 1) * 60 * 60 * 1000, user.id)
+    .bind(Date.now() - 25 * 60 * 60 * 1000, user.id)
+    .run();
+  return c.json({ ok: true });
+});
+
+// Local E2E only: mark the current user as an existing subscriber (from before new sign-ups ended).
+app.post("/api/test/subscribe", async (c) => {
+  const user = c.get("user");
+  if (c.env.E2E_MODE !== "1" || !isLocal(c.req.url) || !user) return c.notFound();
+  await c.env.DB.prepare("UPDATE users SET stripe_customer_id = ?, subscription_status = 'active' WHERE id = ?")
+    .bind(`cus_e2e_${user.id}`, user.id)
     .run();
   return c.json({ ok: true });
 });
@@ -82,7 +93,7 @@ function homeHead(origin: string) {
       applicationCategory: "BusinessApplication",
       operatingSystem: "Web",
       areaServed: { "@type": "AdministrativeArea", name: SERVICE.areaServed },
-      offers: { "@type": "Offer", price: SERVICE.price.amount, priceCurrency: "JPY", description: SERVICE.price.label },
+      offers: { "@type": "Offer", price: 0, priceCurrency: "JPY", description: "相談は無料" },
       publisher,
     },
   ];
