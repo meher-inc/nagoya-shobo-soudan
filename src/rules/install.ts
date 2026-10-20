@@ -1,0 +1,496 @@
+// 消防用設備等の設置義務と防火管理者の選任義務を、消防法施行令の条文どおりに決定的に判定する。
+// LLM には判定させない（要件定義書 5章 F2、データスキーマ設計 4章）。
+// 根拠: 消防法施行令 第1条の2・第10条・第11条・第12条・第21条・第22条・第24条・第25条・第26条（e-Gov）
+// 条例の上乗せ・本部の運用・令第32条の特例・総務省令による免除はここでは扱わず、caveats に書く。
+
+export type Equipment =
+  | "fire_manager"
+  | "extinguisher"
+  | "indoor_hydrant"
+  | "sprinkler"
+  | "auto_alarm"
+  | "leak_alarm"
+  | "emergency_alarm"
+  | "evac_device"
+  | "guide_light";
+
+export const EQUIPMENT_LABEL: Record<Equipment, string> = {
+  fire_manager: "防火管理者",
+  extinguisher: "消火器具",
+  indoor_hydrant: "屋内消火栓設備",
+  sprinkler: "スプリンクラー設備",
+  auto_alarm: "自動火災報知設備",
+  leak_alarm: "漏電火災警報器",
+  emergency_alarm: "非常警報器具・非常警報設備",
+  evac_device: "避難器具",
+  guide_light: "誘導灯・誘導標識",
+};
+
+export type Structure =
+  | "fireproof_flame_retardant" // 特定主要構造部が耐火構造＋内装が難燃材料（3倍読み）
+  | "fireproof" // 特定主要構造部が耐火構造（2倍読み）
+  | "quasi_fireproof_flame_retardant" // 準耐火（建基法2条9号の3イ・ロ）＋内装が難燃材料（2倍読み）
+  | "other";
+
+export type Facts = {
+  occupancy: string; // 令別表第一の項（例: 3ロ、6イ(4)、16イ、16の2）
+  total_area?: number; // 延べ面積（㎡）
+  floors_above?: number; // 地階を除く階数
+  floors_below?: number; // 地階の階数
+  capacity?: number; // 収容人員（全体）
+  fire_use?: boolean; // 火を使用する設備・器具がある（(3)項）
+  structure?: Structure;
+  overnight?: boolean; // (6)項ハで入居・宿泊させる
+  lath_wall?: boolean; // 準不燃材料以外の下地の鉄網入りの壁・床・天井（ラスモルタル等）
+  contract_amperes?: number; // 契約電流容量（A）
+  direct_stairs?: number; // 避難階・地上に直通する階段の数
+  specific_use_upper?: boolean; // (16)項イで、特定用途の部分が避難階以外の階にある
+  // 特定の階について聞かれたとき
+  floor?: number; // 階（地階は -1, -2 …）
+  floor_area?: number;
+  floor_capacity?: number;
+  windowless?: boolean; // その階が無窓階
+  lower_floor_risky_use?: boolean; // 下階に (1)〜(4)・(9)・(12)イ・(13)イ・(14)・(15) 項の用途がある（令25条）
+};
+
+export type Result = "required" | "not_required" | "conditional";
+
+export type Verdict = {
+  equipment: Equipment;
+  result: Result;
+  assertive: boolean; // false = 総務省令の除外・代替などで変わりうる（「原則」）
+  scope?: string; // 必要な範囲が建物全体でないとき（例: 11階以上の階）
+  detail?: string; // 設備の種類など
+  basis: string; // 例: 消防法施行令 第十条第一項第二号
+  reason: string;
+  caveats: string[];
+  missing: (keyof Facts)[];
+};
+
+// ---- 用途（令別表第一）の判定 ----
+
+type Occ = { main: string; sub?: string; num?: number };
+
+export function parseOccupancy(raw: string): Occ | null {
+  const s = raw
+    .normalize("NFKC")
+    .replace(/[（(]/g, "(")
+    .replace(/[）)]/g, ")")
+    .replace(/項/g, "")
+    .replace(/\s/g, "")
+    .replace(/^\((\d{1,2}(?:の[23])?)\)/, "$1");
+  const m = s.match(/^(\d{1,2}(?:の[23])?)([イロハニ])?(?:\((\d)\))?$/);
+  if (!m) return null;
+  return { main: m[1], sub: m[2], num: m[3] ? Number(m[3]) : undefined };
+}
+
+// pattern: "6", "6イ", "6イ(1)", "16の2"。true / false / null（細分が分からない）
+function matchOne(o: Occ, pattern: string): boolean | null {
+  const p = parseOccupancy(pattern)!;
+  if (o.main !== p.main) return false;
+  if (!p.sub) return true;
+  if (!o.sub) return null;
+  if (o.sub !== p.sub) return false;
+  if (p.num === undefined) return true;
+  if (o.num === undefined) return null;
+  return o.num === p.num;
+}
+
+function inList(o: Occ, list: string[]): boolean | null {
+  let unknown = false;
+  for (const p of list) {
+    const r = matchOne(o, p);
+    if (r === true) return true;
+    if (r === null) unknown = true;
+  }
+  return unknown ? null : false;
+}
+
+const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => String(from + i));
+
+// 令11条2項の倍読み
+function areaMultiplier(st: Structure | undefined): number | null {
+  if (st === undefined) return null;
+  if (st === "fireproof_flame_retardant") return 3;
+  if (st === "fireproof" || st === "quasi_fireproof_flame_retardant") return 2;
+  return 1;
+}
+
+const ART = "消防法施行令";
+
+type Ctx = { o: Occ; f: Facts };
+
+function verdict(
+  equipment: Equipment,
+  result: Result,
+  basis: string,
+  reason: string,
+  extra: Partial<Omit<Verdict, "equipment" | "result" | "basis" | "reason">> = {},
+): Verdict {
+  return { equipment, result, basis, reason, assertive: true, caveats: [], missing: [], ...extra };
+}
+
+const isBasement = (f: Facts) => f.floor !== undefined && f.floor < 0;
+
+// ---- 防火管理者（令1条の2第3項第1号）----
+
+function fireManager({ o, f }: Ctx): Verdict {
+  const e: Equipment = "fire_manager";
+  const b = `${ART} 第一条の二第三項第一号`;
+  if (inList(o, ["16の3", "18", "19", "20"])) return verdict(e, "not_required", b, "この用途は防火管理者の選任対象から除かれている");
+  let threshold: number | null = null;
+  if (inList(o, ["6ロ"])) threshold = 10;
+  else if (inList(o, ["16イ", "16の2"])) {
+    return verdict(e, f.capacity === undefined ? "conditional" : f.capacity >= 30 ? "required" : f.capacity >= 10 ? "conditional" : "not_required", b,
+      "(6)項ロの用途の部分があれば収容人員10人以上、なければ30人以上で必要",
+      { missing: f.capacity === undefined ? ["capacity"] : [], caveats: ["(6)項ロ（要介護の入所施設など）の部分があるかで基準が変わる"] });
+  } else if (inList(o, ["1", "2", "3", "4", "5イ", "6イ", "6ハ", "6ニ", "9イ"])) threshold = 30;
+  else if (inList(o, ["5ロ", "7", "8", "9ロ", ...range(10, 15), "16ロ", "17"])) threshold = 50;
+  if (threshold === null) return verdict(e, "conditional", b, "用途の細分が分からない", { missing: ["occupancy"] });
+  if (f.capacity === undefined) return verdict(e, "conditional", b, `収容人員${threshold}人以上で必要`, { missing: ["capacity"] });
+  return f.capacity >= threshold
+    ? verdict(e, "required", b, `収容人員${f.capacity}人（${threshold}人以上）`)
+    : verdict(e, "not_required", b, `収容人員${f.capacity}人（${threshold}人未満）`);
+}
+
+// ---- 消火器具（令10条1項）----
+
+function extinguisher({ o, f }: Ctx): Verdict {
+  const e: Equipment = "extinguisher";
+  const floorCaveat = "地階・無窓階・3階以上の階で床面積50㎡以上の階があれば、その階には必要（同項第五号）";
+  const hazCaveat = "少量危険物・指定可燃物を貯蔵し、又は取り扱う場合は面積にかかわらず必要（同項第四号）";
+  const always = inList(o, ["1イ", "2", "6イ(1)", "6イ(2)", "6イ(3)", "6ロ", "16の2", "16の3", "17", "20"]);
+  if (always) return verdict(e, "required", `${ART} 第十条第一項第一号イ`, "この用途は延べ面積にかかわらず必要");
+  if (inList(o, ["3"])) {
+    if (f.fire_use === true)
+      return verdict(e, "required", `${ART} 第十条第一項第一号ロ`, "火を使用する設備・器具がある(3)項は延べ面積にかかわらず必要", {
+        caveats: ["総務省令で定める防火上有効な措置が講じられた設備・器具だけの場合は除かれる"],
+      });
+  }
+  let threshold: number | null = null;
+  let item = "";
+  if (inList(o, ["1ロ", "4", "5", "6イ(4)", "6ハ", "6ニ", "9", "12", "13", "14", "3"])) {
+    threshold = 150;
+    item = "第二号";
+  } else if (inList(o, ["7", "8", "10", "11", "15"])) {
+    threshold = 300;
+    item = "第三号";
+  }
+  if (inList(o, ["16イ", "16ロ"]))
+    return verdict(e, "conditional", `${ART} 第九条・第十条`, "複合用途は用途ごとの部分に分けて判定する", { missing: ["occupancy"] });
+  if (threshold === null) {
+    if (always === null || inList(o, ["6イ"]) === true)
+      return verdict(e, "conditional", `${ART} 第十条第一項`, "用途の細分（(6)項イの(1)〜(4)など）が分からない", { missing: ["occupancy"] });
+    return verdict(e, "conditional", `${ART} 第十条第一項`, "この用途の基準は個別に確認が必要", { missing: ["occupancy"] });
+  }
+  const b = `${ART} 第十条第一項${item}`;
+  if (inList(o, ["3"]) && f.fire_use === undefined && (f.total_area === undefined || f.total_area < 150))
+    return verdict(e, "conditional", `${ART} 第十条第一項第一号ロ・第二号ロ`, "火を使用する設備・器具があれば面積にかかわらず必要、なければ延べ150㎡以上で必要", {
+      missing: ["fire_use", ...(f.total_area === undefined ? (["total_area"] as const) : [])],
+    });
+  if (f.total_area === undefined) return verdict(e, "conditional", b, `延べ面積${threshold}㎡以上で必要`, { missing: ["total_area"] });
+  if (f.total_area >= threshold) return verdict(e, "required", b, `延べ面積${f.total_area}㎡（${threshold}㎡以上）`);
+  // 建物全体では不要。特定の階を聞かれていれば第五号を当てる
+  if (f.floor !== undefined && (isBasement(f) || f.floor >= 3 || f.windowless === true)) {
+    if (f.floor_area === undefined) return verdict(e, "conditional", `${ART} 第十条第一項第五号`, "その階の床面積50㎡以上で必要", { missing: ["floor_area"] });
+    if (f.floor_area >= 50)
+      return verdict(e, "required", `${ART} 第十条第一項第五号`, `地階・無窓階・3階以上の階で床面積${f.floor_area}㎡（50㎡以上）`, { scope: "その階" });
+  }
+  return verdict(e, "not_required", b, `延べ面積${f.total_area}㎡（${threshold}㎡未満）`, { caveats: [floorCaveat, hazCaveat] });
+}
+
+// ---- 屋内消火栓設備（令11条）----
+
+function indoorHydrant({ o, f }: Ctx): Verdict {
+  const e: Equipment = "indoor_hydrant";
+  let base: number | null = null;
+  let item = "";
+  if (inList(o, ["1"])) [base, item] = [500, "第一号"];
+  else if (inList(o, [...range(2, 10), "12", "14"])) [base, item] = [700, "第二号"];
+  else if (inList(o, ["11", "15"])) [base, item] = [1000, "第三号"];
+  else if (inList(o, ["16の2"])) [base, item] = [150, "第四号"];
+  if (inList(o, ["16イ", "16ロ"]))
+    return verdict(e, "conditional", `${ART} 第九条・第十一条`, "複合用途は用途ごとの部分に分けて判定する", { missing: ["occupancy"] });
+  if (base === null) return verdict(e, "not_required", `${ART} 第十一条第一項`, "この用途は延べ面積による設置対象ではない", {
+    caveats: ["指定可燃物を政令別表第四の数量の750倍以上貯蔵・取扱う場合は必要（同項第五号）"],
+  });
+  const b = `${ART} 第十一条第一項${item}・第二項`;
+  if (f.total_area === undefined) return verdict(e, "conditional", b, `延べ面積${base}㎡以上（構造により2倍・3倍）で必要`, { missing: ["total_area"] });
+  const mul = areaMultiplier(f.structure);
+  const caveats = [
+    "地階・無窓階・4階以上の階で一定の床面積以上の階があれば、その階には必要（同項第六号）",
+    "スプリンクラー設備などを技術基準どおり設けた部分は不要（同条第四項）",
+  ];
+  if (mul === null) {
+    if (f.total_area < base) return verdict(e, "not_required", b, `延べ面積${f.total_area}㎡（${base}㎡未満）`, { caveats });
+    if (f.total_area >= base * 3) return verdict(e, "required", b, `延べ面積${f.total_area}㎡（3倍読みの${base * 3}㎡以上）`, { caveats });
+    return verdict(e, "conditional", b, `構造と内装により基準が${base}㎡・${base * 2}㎡・${base * 3}㎡のいずれかになる`, { missing: ["structure"] });
+  }
+  const t = base * mul;
+  return f.total_area >= t
+    ? verdict(e, "required", b, `延べ面積${f.total_area}㎡（基準${t}㎡以上）`, { caveats: caveats.slice(1) })
+    : verdict(e, "not_required", b, `延べ面積${f.total_area}㎡（基準${t}㎡未満${mul > 1 ? `、${mul}倍読み` : ""}）`, { caveats });
+}
+
+// ---- スプリンクラー設備（令12条）----
+
+function sprinkler({ o, f }: Ctx): Verdict {
+  const e: Equipment = "sprinkler";
+  const shorei = "総務省令で定める部分は除いて判定する";
+  const high = f.floors_above !== undefined && f.floors_above >= 11;
+  // 第三号: 11階以上の特定用途
+  if (high && inList(o, ["1", "2", "3", "4", "5イ", "6", "9イ", "16イ"]))
+    return verdict(e, "required", `${ART} 第十二条第一項第三号`, `地階を除く階数が${f.floors_above}（11以上）`, { caveats: [shorei] });
+  // 第一号: 社会福祉施設等
+  if (inList(o, ["6イ(1)", "6イ(2)", "6ロ(1)", "6ロ(3)"]))
+    return verdict(e, "required", `${ART} 第十二条第一項第一号`, "この用途は延べ面積にかかわらず必要", {
+      assertive: false,
+      caveats: ["火災発生時の延焼を抑制する機能を備える構造として総務省令で定める構造を有するものは除かれる"],
+    });
+  if (inList(o, ["6ロ(2)", "6ロ(4)", "6ロ(5)"])) {
+    const r: Result = f.total_area !== undefined && f.total_area >= 275 ? "required" : "conditional";
+    return verdict(e, r, `${ART} 第十二条第一項第一号ハ`, "介助がなければ避難できない者を主として入所させるものは面積にかかわらず、それ以外は延べ275㎡以上で必要", {
+      assertive: false,
+      caveats: ["延焼を抑制する構造として総務省令で定めるものは除かれる"],
+      missing: r === "conditional" ? ["total_area"] : [],
+    });
+  }
+  if (inList(o, ["6イ", "6ロ"]) === true && o.num === undefined)
+    return verdict(e, "conditional", `${ART} 第十二条第一項`, "(6)項イ・ロの細分で基準が変わる", { missing: ["occupancy"] });
+  // 第六号: 地下街
+  if (inList(o, ["16の2"])) {
+    if (f.total_area === undefined) return verdict(e, "conditional", `${ART} 第十二条第一項第六号`, "延べ1,000㎡以上で必要", { missing: ["total_area"] });
+    return f.total_area >= 1000
+      ? verdict(e, "required", `${ART} 第十二条第一項第六号`, `延べ面積${f.total_area}㎡（1,000㎡以上）`)
+      : verdict(e, "not_required", `${ART} 第十二条第一項第六号`, `延べ面積${f.total_area}㎡（1,000㎡未満）`, {
+          caveats: ["(6)項イ(1)(2)・ロの用途の部分は面積にかかわらず必要（同項第九号）"],
+        });
+  }
+  // 第四号: 平屋建以外の特定用途
+  if (inList(o, ["1", "2", "3", "4", "5イ", "6", "9イ"])) {
+    const t = inList(o, ["4", "6イ(1)", "6イ(2)", "6イ(3)"]) ? 3000 : 6000;
+    const b = `${ART} 第十二条第一項第四号`;
+    if (f.floors_above === 1 && (f.floors_below ?? 0) === 0)
+      return verdict(e, "not_required", b, "平屋建は第四号の対象外", { caveats: ["地階・無窓階・4階以上の階は階ごとの基準がある（同項第十一号）"] });
+    if (f.total_area === undefined) return verdict(e, "conditional", b, `平屋建以外で床面積の合計${t}㎡以上で必要`, { missing: ["total_area"] });
+    if (f.total_area >= t) {
+      if (f.floors_above === undefined && f.floors_below === undefined)
+        return verdict(e, "conditional", b, `平屋建以外なら床面積の合計${t}㎡以上で必要`, { missing: ["floors_above"] });
+      return verdict(e, "required", b, `平屋建以外で床面積の合計${f.total_area}㎡（${t}㎡以上）`, { caveats: [shorei] });
+    }
+    return verdict(e, "not_required", b, `床面積の合計${f.total_area}㎡（${t}㎡未満）`, {
+      caveats: ["地階・無窓階は床面積1,000㎡以上、4階以上10階以下の階は1,500㎡（(2)項・(4)項は1,000㎡）以上で、その階に必要（同項第十一号）"],
+    });
+  }
+  if (inList(o, ["16イ", "16ロ"]))
+    return verdict(e, "conditional", `${ART} 第十二条第一項第十号・第十一号`, "複合用途は特定用途の部分の床面積で判定する", { missing: ["occupancy"] });
+  // 第十二号: その他の用途の11階以上の階
+  if (high)
+    return verdict(e, "required", `${ART} 第十二条第一項第十二号`, `地階を除く階数が${f.floors_above}`, { scope: "11階以上の階", caveats: [shorei] });
+  if (f.floors_above === undefined) return verdict(e, "conditional", `${ART} 第十二条第一項第十二号`, "11階以上の階があればその階に必要", { missing: ["floors_above"] });
+  return verdict(e, "not_required", `${ART} 第十二条第一項`, "この用途・規模は対象外", {
+    caveats: ["(14)項のラック式倉庫、指定可燃物の大量貯蔵などは別に基準がある（同項第五号・第八号）"],
+  });
+}
+
+// ---- 自動火災報知設備（令21条）----
+
+function autoAlarm({ o, f }: Ctx): Verdict {
+  const e: Equipment = "auto_alarm";
+  const floorCaveats = [
+    "地階・無窓階・3階以上の階で床面積300㎡以上の階があれば、その階には必要（同項第十一号）",
+    "11階以上の階には必要（同項第十四号）",
+  ];
+  if (inList(o, ["2ニ", "5イ", "6イ(1)", "6イ(2)", "6イ(3)", "6ロ", "13ロ", "17"]))
+    return verdict(e, "required", `${ART} 第二十一条第一項第一号イ`, "この用途は延べ面積にかかわらず必要");
+  if (inList(o, ["6ハ"])) {
+    if (f.overnight === true) return verdict(e, "required", `${ART} 第二十一条第一項第一号ロ`, "入居・宿泊させる(6)項ハは延べ面積にかかわらず必要");
+    if (f.overnight === undefined) return verdict(e, "conditional", `${ART} 第二十一条第一項第一号ロ・第三号ロ`, "入居・宿泊させるなら面積にかかわらず、それ以外は延べ300㎡以上で必要", { missing: ["overnight"] });
+  }
+  if (inList(o, ["6イ"]) === true && o.num === undefined)
+    return verdict(e, "conditional", `${ART} 第二十一条第一項`, "(6)項イの細分で基準が変わる", { missing: ["occupancy"] });
+  if (inList(o, ["16の3"]))
+    return verdict(e, "conditional", `${ART} 第二十一条第一項第五号`, "延べ500㎡以上で、特定用途の部分が300㎡以上なら必要", { missing: ["occupancy"] });
+  let threshold: number | null = null;
+  let item = "";
+  if (inList(o, ["9イ"])) [threshold, item] = [200, "第二号"];
+  else if (inList(o, ["1", "2イ", "2ロ", "2ハ", "3", "4", "6イ(4)", "6ニ", "16イ", "16の2", "6ハ"])) [threshold, item] = [300, "第三号"];
+  else if (inList(o, ["5ロ", "7", "8", "9ロ", "10", "12", "13イ", "14"])) [threshold, item] = [500, "第四号"];
+  else if (inList(o, ["11", "15"])) [threshold, item] = [1000, "第六号"];
+  if (threshold === null) return verdict(e, "conditional", `${ART} 第二十一条第一項`, "この用途の基準は個別に確認が必要", { missing: ["occupancy"] });
+  const b = `${ART} 第二十一条第一項${item}`;
+  const assertive = !inList(o, ["5ロ"]);
+  const altCaveat = inList(o, ["5ロ"]) ? ["共同住宅は、特定共同住宅等の総務省令（平成17年総務省令第40号）により、住戸用自火報などで代えられる場合がある"] : [];
+  if (f.total_area === undefined) return verdict(e, "conditional", b, `延べ面積${threshold}㎡以上で必要`, { missing: ["total_area"] });
+  if (f.total_area >= threshold) return verdict(e, "required", b, `延べ面積${f.total_area}㎡（${threshold}㎡以上）`, { assertive, caveats: altCaveat });
+  // 第七号: 特定一階段等防火対象物
+  const specific = inList(o, ["1", "2", "3", "4", "5イ", "6", "9イ"]) === true || (inList(o, ["16イ"]) === true && f.specific_use_upper === true);
+  const multi = (f.floors_above ?? 0) >= 2 || (f.floors_below ?? 0) >= 1;
+  if (specific && multi) {
+    if (f.direct_stairs === undefined)
+      return verdict(e, "conditional", `${ART} 第二十一条第一項第七号`, "避難階以外の階から直通する階段が2つ（屋外階段などは1つ）以上なければ、面積にかかわらず必要", { missing: ["direct_stairs"] });
+    if (f.direct_stairs < 2)
+      return verdict(e, "required", `${ART} 第二十一条第一項第七号`, "特定用途が避難階以外の階にあり、直通階段が1つ", {
+        caveats: ["その階段が屋外に設けられ、又は総務省令で定める避難上有効な構造の場合は1つでよい"],
+      });
+  }
+  if (inList(o, ["16イ"]) === true && multi && f.specific_use_upper === undefined)
+    return verdict(e, "conditional", b, `延べ面積${f.total_area}㎡（${threshold}㎡未満）。特定用途の部分が避難階以外にあり直通階段が1つなら必要（同項第七号）`, {
+      missing: ["specific_use_upper", ...(f.direct_stairs === undefined ? (["direct_stairs"] as const) : [])],
+    });
+  return verdict(e, "not_required", b, `延べ面積${f.total_area}㎡（${threshold}㎡未満）`, { caveats: floorCaveats });
+}
+
+// ---- 漏電火災警報器（令22条）----
+
+function leakAlarm({ o, f }: Ctx): Verdict {
+  const e: Equipment = "leak_alarm";
+  const b0 = `${ART} 第二十二条第一項`;
+  if (f.lath_wall === false) return verdict(e, "not_required", b0, "準不燃材料以外の下地の鉄網入りの壁・床・天井（ラスモルタル等）がない");
+  let threshold: number | null = null;
+  let item = "";
+  if (inList(o, ["17"])) [threshold, item] = [0, "第一号"];
+  else if (inList(o, ["5", "9"])) [threshold, item] = [150, "第二号"];
+  else if (inList(o, ["1", "2", "3", "4", "6", "12", "16の2"])) [threshold, item] = [300, "第三号"];
+  else if (inList(o, ["7", "8", "10", "11"])) [threshold, item] = [500, "第四号"];
+  else if (inList(o, ["14", "15"])) [threshold, item] = [1000, "第五号"];
+  else if (inList(o, ["16イ"])) [threshold, item] = [500, "第六号"];
+  const b = `${b0}${item}`;
+  const ampCaveat = inList(o, [...range(1, 6), "15", "16"]) ? ["契約電流容量が50Aを超える建築物は、面積にかかわらず必要（同項第七号）"] : [];
+  if (threshold === null) return verdict(e, "conditional", b0, "この用途の基準は個別に確認が必要", { missing: ["occupancy"] });
+  const areaOk = f.total_area === undefined ? null : f.total_area >= threshold;
+  const ampOk = ampCaveat.length > 0 && f.contract_amperes !== undefined ? f.contract_amperes > 50 : null;
+  if (f.lath_wall === undefined)
+    return verdict(e, "conditional", b, "ラスモルタル等（準不燃材料以外の下地の鉄網入りの壁・床・天井）がある建物だけが対象", { missing: ["lath_wall"] });
+  if (areaOk || ampOk) return verdict(e, "required", ampOk && !areaOk ? `${b0}第七号` : b, areaOk ? `延べ面積${f.total_area}㎡（${threshold}㎡以上）` : `契約電流容量${f.contract_amperes}A（50A超）`,
+    { caveats: inList(o, ["16イ"]) ? ["(16)項イは、特定用途の部分の床面積の合計が300㎡以上であることも必要"] : [] });
+  if (areaOk === null) return verdict(e, "conditional", b, `延べ面積${threshold}㎡以上で必要`, { missing: ["total_area"] });
+  return verdict(e, "not_required", b, `延べ面積${f.total_area}㎡（${threshold}㎡未満）`, { caveats: ampOk === false ? [] : ampCaveat });
+}
+
+// ---- 非常警報器具・非常警報設備（令24条）----
+
+function emergencyAlarm({ o, f }: Ctx): Verdict {
+  const e: Equipment = "emergency_alarm";
+  const exempt = ["自動火災報知設備を技術基準どおり設けた場合、その有効範囲内は不要"];
+  const cap = f.capacity;
+  // 第三項（非常ベル＋放送設備 または 自動式サイレン＋放送設備）
+  const bothDetail = "非常ベル＋放送設備、または自動式サイレン＋放送設備";
+  if (inList(o, ["16の2", "16の3"])) return verdict(e, "required", `${ART} 第二十四条第三項第一号`, "地下街・準地下街", { detail: bothDetail });
+  if ((f.floors_above ?? 0) >= 11 || (f.floors_below ?? 0) >= 3)
+    return verdict(e, "required", `${ART} 第二十四条第三項第二号`, "地階を除く階数が11以上、又は地階の階数が3以上", { detail: bothDetail });
+  if (cap !== undefined) {
+    if (inList(o, ["16イ"]) && cap >= 500) return verdict(e, "required", `${ART} 第二十四条第三項第三号`, `収容人員${cap}人（500人以上）`, { detail: bothDetail });
+    if (inList(o, ["1", "2", "3", "4", "5イ", "6", "9イ"]) && cap >= 300)
+      return verdict(e, "required", `${ART} 第二十四条第三項第四号`, `収容人員${cap}人（300人以上）`, { detail: bothDetail });
+    if (inList(o, ["5ロ", "7", "8"]) && cap >= 800) return verdict(e, "required", `${ART} 第二十四条第三項第四号`, `収容人員${cap}人（800人以上）`, { detail: bothDetail });
+  }
+  if (cap === undefined) return verdict(e, "conditional", `${ART} 第二十四条`, "収容人員で決まる", { missing: ["capacity"] });
+  // 第二項（非常ベル・自動式サイレン・放送設備のいずれか）
+  const oneDetail = "非常ベル、自動式サイレン又は放送設備のいずれか";
+  if (inList(o, ["5イ", "6イ", "9イ"]) && cap >= 20)
+    return verdict(e, "required", `${ART} 第二十四条第二項第一号`, `収容人員${cap}人（20人以上）`, { detail: oneDetail, caveats: exempt });
+  if (inList(o, [...range(1, 17), "16イ", "16ロ"]) && cap >= 50)
+    return verdict(e, "required", `${ART} 第二十四条第二項第二号`, `収容人員${cap}人（50人以上）`, { detail: oneDetail, caveats: exempt });
+  // 第一項（非常警報器具）
+  if (inList(o, ["4", "6ロ", "6ハ", "6ニ", "9ロ", "12"]) && cap >= 20)
+    return verdict(e, "required", `${ART} 第二十四条第一項`, `収容人員${cap}人（20人以上50人未満）`, { detail: "非常警報器具", caveats: exempt });
+  return verdict(e, "not_required", `${ART} 第二十四条`, `収容人員${cap}人で、この用途の基準に達しない`, {
+    caveats: ["地階・無窓階の収容人員が20人以上なら非常ベル等が必要（同条第二項第二号）"],
+  });
+}
+
+// ---- 避難器具（令25条）。階ごとに判定する ----
+
+function evacDevice({ o, f }: Ctx): Verdict {
+  const e: Equipment = "evac_device";
+  const b0 = `${ART} 第二十五条第一項`;
+  if (f.floor === undefined || f.floor_capacity === undefined)
+    return verdict(e, "conditional", b0, "階ごとに、その階の収容人員で判定する", {
+      missing: [...(f.floor === undefined ? (["floor"] as const) : []), ...(f.floor_capacity === undefined ? (["floor_capacity"] as const) : [])],
+    });
+  if (f.floor === 1) return verdict(e, "not_required", b0, "避難階（通常は1階）は対象外");
+  if (f.floor >= 11) return verdict(e, "not_required", b0, "11階以上の階は対象外");
+  const cap = f.floor_capacity;
+  const upperOrBasement = f.floor >= 2 || f.floor < 0;
+  const hits: { item: string; t: number; lowered: number | null }[] = [];
+  if (inList(o, ["6"]) && upperOrBasement) hits.push({ item: "第一号", t: 20, lowered: 10 });
+  if (inList(o, ["5"]) && upperOrBasement) hits.push({ item: "第二号", t: 30, lowered: 10 });
+  if (inList(o, ["1", "2", "3", "4", ...range(7, 11)]) && upperOrBasement && !(f.floor === 2 && f.structure?.startsWith("fireproof")))
+    hits.push({ item: "第三号", t: 50, lowered: null });
+  if (inList(o, ["12", "15"]) && (f.floor >= 3 || f.floor < 0))
+    hits.push({ item: "第四号", t: (f.windowless || f.floor < 0) ? 100 : 150, lowered: null });
+  for (const h of hits) {
+    if (cap >= h.t) return verdict(e, "required", `${b0}${h.item}`, `その階の収容人員${cap}人（${h.t}人以上）`, { scope: "その階" });
+    if (h.lowered !== null && cap >= h.lowered) {
+      if (f.lower_floor_risky_use === true)
+        return verdict(e, "required", `${b0}${h.item}`, `下階に一定の用途があり、その階の収容人員${cap}人（10人以上）`, { scope: "その階" });
+      if (f.lower_floor_risky_use === undefined)
+        return verdict(e, "conditional", `${b0}${h.item}`, `下階に(1)〜(4)・(9)・(12)イ・(13)イ・(14)・(15)項の用途があれば10人以上で必要`, { missing: ["lower_floor_risky_use"] });
+    }
+  }
+  // 第五号: 直通階段が2未満の階
+  const minFloor = inList(o, ["2", "3"]) ? 2 : 3;
+  if (f.floor >= minFloor && cap >= 10) {
+    if (f.direct_stairs === undefined)
+      return verdict(e, "conditional", `${b0}第五号`, "直通階段が2つ以上なければ収容人員10人以上で必要", { missing: ["direct_stairs"] });
+    if (f.direct_stairs < 2) return verdict(e, "required", `${b0}第五号`, `直通階段が${f.direct_stairs}つで、その階の収容人員${cap}人（10人以上）`, { scope: "その階" });
+  }
+  return verdict(e, "not_required", b0, `その階の収容人員${cap}人で、この用途の基準に達しない`);
+}
+
+// ---- 誘導灯・誘導標識（令26条）----
+
+function guideLight({ o, f }: Ctx): Verdict {
+  const e: Equipment = "guide_light";
+  const b = `${ART} 第二十六条第一項`;
+  const exempt = ["避難が容易であると認められるもので総務省令で定めるものは除かれる（同項ただし書）"];
+  if (inList(o, ["1", "2", "3", "4", "5イ", "6", "9", "16イ", "16の2", "16の3"]))
+    return verdict(e, "required", `${b}第一号・第二号`, "避難口誘導灯と通路誘導灯が必要", {
+      assertive: false,
+      detail: inList(o, ["1"]) ? "避難口誘導灯・通路誘導灯・客席誘導灯" : "避難口誘導灯・通路誘導灯",
+      caveats: exempt,
+    });
+  if (inList(o, ["5ロ", "7", "8", ...range(10, 15), "16ロ"])) {
+    const high = (f.floors_above ?? 0) >= 11;
+    const below = (f.floors_below ?? 0) >= 1;
+    if (high || below)
+      return verdict(e, "required", `${b}第一号・第二号`, "地階・無窓階・11階以上の部分に誘導灯が必要", { assertive: false, scope: "地階・無窓階・11階以上の部分", caveats: exempt });
+    if (f.floors_above === undefined || f.floors_below === undefined)
+      return verdict(e, "conditional", `${b}第一号・第二号`, "地階・無窓階・11階以上の部分にだけ誘導灯が必要。誘導標識は全体に必要", { missing: ["floors_above", "floors_below"] });
+    return verdict(e, "not_required", `${b}第四号`, "誘導灯は不要（地階・無窓階・11階以上の部分がない）。誘導標識は必要", {
+      detail: "誘導標識",
+      caveats: ["無窓階があれば、その階には誘導灯が必要"],
+    });
+  }
+  if (inList(o, ["17", "18", "19", "20"])) return verdict(e, "not_required", b, "この用途は対象外");
+  return verdict(e, "conditional", b, "用途の細分が分からない", { missing: ["occupancy"] });
+}
+
+const JUDGES: Record<Equipment, (c: Ctx) => Verdict> = {
+  fire_manager: fireManager,
+  extinguisher,
+  indoor_hydrant: indoorHydrant,
+  sprinkler,
+  auto_alarm: autoAlarm,
+  leak_alarm: leakAlarm,
+  emergency_alarm: emergencyAlarm,
+  evac_device: evacDevice,
+  guide_light: guideLight,
+};
+
+/** 用途が list のどれかに当たるか（細分が分からなければ null） */
+export function occupancyIn(raw: string, list: string[]): boolean | null {
+  const o = parseOccupancy(raw);
+  return o ? inList(o, list) : null;
+}
+
+export function judge(equipment: Equipment, facts: Facts): Verdict {
+  const o = parseOccupancy(facts.occupancy);
+  if (!o) return verdict(equipment, "conditional", "消防法施行令 別表第一", "用途（令別表第一の項）が読み取れない", { missing: ["occupancy"] });
+  return JUDGES[equipment]({ o, f: facts });
+}
+
+export function judgeAll(facts: Facts): Verdict[] {
+  return (Object.keys(JUDGES) as Equipment[]).map((e) => judge(e, facts));
+}

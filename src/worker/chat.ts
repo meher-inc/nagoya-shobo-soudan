@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { AppEnv, Env } from "./env";
 import { accessOf, createAnonymousUser } from "./session";
 import { ASSISTANT_FALLBACK, SYSTEM_PROMPT } from "../config/prompt";
+import { runRules, rulesNote } from "../rules/extract.ts";
 
 export const chat = new Hono<AppEnv>();
 
@@ -114,10 +115,11 @@ function stalledStream(): ReadableStream<Uint8Array> {
  * Extension point: a service that needs retrieval (RAG) or extra per-turn rules builds `system` here.
  * See CLAUDE.md "拡張" for how the Tokyo fire consultation service adds law citations.
  */
-async function runModel(env: Env, messages: Msg[], question: string, realAi: boolean) {
+async function runModel(env: Env, messages: Msg[], question: string, realAi: boolean, rules?: string) {
   if (env.E2E_MODE === "1" && question === "__stall__") return stalledStream();
   if (env.AI_MOCK === "1" && !realAi) return mockStream(question);
-  const system = SYSTEM_PROMPT;
+  // 設置義務・届出の要否は条文どおりのルールで判定し（src/rules）、結論を固定してからモデルに説明させる
+  const system = rules ? `${SYSTEM_PROMPT}\n\n${rules}` : SYSTEM_PROMPT;
   return (await env.AI.run(env.AI_MODEL as keyof AiModels, {
     messages: [{ role: "system", content: system }, ...messages],
     stream: true,
@@ -170,19 +172,21 @@ chat.post("/", async (c) => {
     .run();
 
   const messages: Msg[] = [...history.reverse(), { role: "user", content: message }];
+  const rulesResult = c.env.RULES_ENABLED === "1" ? runRules("nagoya-city", messages.filter((m) => m.role === "user").map((m) => m.content)) : null;
+  const rules = rulesResult ? rulesNote(rulesResult) : undefined;
   const convId = conversationId;
   let source: ReadableStream<Uint8Array>;
   // Local E2E only: tests that check answer quality opt in to the real model.
   const realAi = c.env.E2E_MODE === "1" && c.req.header("x-test-real-ai") === "1";
   try {
-    source = await runModel(c.env, messages, message, realAi);
+    source = await runModel(c.env, messages, message, realAi, rules);
   } catch (first) {
     // Workers AI occasionally drops the upstream connection; one retry covers most of these.
     // 4006 is the daily quota, where retrying cannot help.
     console.error("ai_error_retry", first);
     if (String(first).includes("4006")) return c.json({ error: "ai_unavailable", conversationId: convId }, 503);
     try {
-      source = await runModel(c.env, messages, message, realAi);
+      source = await runModel(c.env, messages, message, realAi, rules);
     } catch (err) {
       console.error("ai_error", err);
       return c.json({ error: "ai_unavailable", conversationId: convId }, 503);
