@@ -847,6 +847,148 @@ function tokyoOverlay(base: Verdict, o: Occ, f: Facts): Verdict {
   }
 }
 
+// 名古屋市火災予防条例（昭和37年名古屋市条例第16号）第3章第1節（第44条〜第56条）。
+// 名古屋市消防局「名古屋市火災予防条例」（令和8年版PDF）の条文本文で確認。方式は kyotoOverlay と同じ。
+// 第56条により、消防局長・消防署長が認めた場合は適用されない（caveats に書く）。
+
+const N_JO = "名古屋市火災予防条例";
+const N_TOKUREI = "消防局長・消防署長が、火災の発生・延焼のおそれが著しく少ない、又は同等以上の効力があると認めた場合は適用されない（名古屋市火災予防条例第56条）";
+const N_EXT_PLACES = "火花を生ずる設備、引火性・発火性の物質の貯蔵取扱い場所、変圧器・配電盤などの電気設備、ボイラー室・サウナ室など多量の火気を使用する場所、溶接・溶断の作業場所などには、別に消火器を設ける（名古屋市火災予防条例第45条第2項）";
+
+function nagoyaOverlay(base: Verdict, o: Occ, f: Facts): Verdict {
+  const note = (v: Verdict, ...cs: string[]): Verdict => ({ ...v, caveats: [...v.caveats, ...cs] });
+  if (base.result === "required" && base.assertive) {
+    if (base.equipment === "extinguisher") return note(base, N_EXT_PLACES);
+    return base;
+  }
+  const up = (result: Result, basis: string, reason: string, extra: Partial<Verdict> = {}): Verdict => ({
+    ...base,
+    result,
+    basis,
+    reason,
+    assertive: extra.assertive ?? true,
+    scope: extra.scope,
+    detail: extra.detail ?? base.detail,
+    caveats: [...(extra.caveats ?? []), N_TOKUREI],
+    missing: extra.missing ?? [],
+  });
+  const lowOrWindowless = f.floor !== undefined && (f.floor < 0 || f.windowless === true);
+  switch (base.equipment) {
+    case "extinguisher": {
+      if (inList(o, ["16イ", "16ロ"]) && f.total_area !== undefined && f.total_area >= 150)
+        return up("required", `${N_JO} 第45条第1項`, `複合用途で延べ面積${f.total_area}㎡（150㎡以上）。(1)項ロ・(3)〜(5)・(6)項イ(4)・ハ・ニ・(7)〜(15)項の用途の部分ごとに消火器を設ける`, {
+          assertive: false,
+          caveats: ["該当する用途の部分がなければ、この条は当たらない", N_EXT_PLACES],
+        });
+      return note(base, N_EXT_PLACES);
+    }
+    case "indoor_hydrant": {
+      if (inList(o, ["16イ", "16ロ"]) && f.total_area !== undefined) {
+        const mul = areaMultiplier(f.structure);
+        const b = `${N_JO} 第46条第1項第1号・第2項`;
+        if (mul === null) {
+          if (f.total_area >= 3000) return up("required", b, `複合用途で延べ面積${f.total_area}㎡（3倍読みの3,000㎡以上）`);
+          if (f.total_area >= 1000) return up("conditional", b, "複合用途は延べ1,000㎡以上で必要。構造と内装で基準が2,000㎡・3,000㎡になる", { missing: ["structure"] });
+        } else if (f.total_area >= 1000 * mul) return up("required", b, `複合用途で延べ面積${f.total_area}㎡（基準${1000 * mul}㎡以上）`);
+      }
+      const b2 = `${N_JO} 第46条第1項第2号`;
+      const exc = "特定主要構造部を耐火構造とし、5階以上の部分が床面積100㎡未満ごとに耐火構造の床・壁・防火戸で区画されたものは除かれる";
+      if (f.floor !== undefined && f.floor >= 5) {
+        if (f.floor_area === undefined) return up("conditional", b2, "5階以上の階で床面積100㎡以上なら、その階に必要", { missing: ["floor_area"] });
+        if (f.floor_area >= 100)
+          return up("required", b2, `5階以上の階で床面積${f.floor_area}㎡（100㎡以上）`, { scope: "その階", assertive: f.structure === "other", caveats: [exc] });
+      } else if (f.floor === undefined && f.floors_above !== undefined && f.floors_above >= 5)
+        return up("conditional", b2, "5階以上の階で床面積100㎡以上の階があれば、その階に必要", { missing: ["floor", "floor_area"], caveats: [exc] });
+      return base;
+    }
+    case "sprinkler": {
+      const spExc = "総務省令（消防法施行規則第13条第2項）で定める部分は除かれる";
+      if (f.height !== undefined && f.height > 31)
+        return up("required", `${N_JO} 第47条第1項第4号`, `高さ${f.height}m（31m超）`, { scope: "高さ31mを超える部分", caveats: [spExc] });
+      if (f.floor !== undefined && f.floor_area !== undefined) {
+        if (inList(o, ["12ロ"])) {
+          const t = lowOrWindowless || f.floor >= 4 ? 300 : 500;
+          if (f.floor_area >= t)
+            return up("required", `${N_JO} 第47条第1項第1号`, `映画スタジオ・テレビスタジオの階で床面積${f.floor_area}㎡（${t}㎡以上）`, {
+              scope: "その階",
+              assertive: false,
+              caveats: ["床面積は主たる用途に供する部分で判定する", spExc],
+            });
+        }
+        if (lowOrWindowless) {
+          if (inList(o, ["2", "3"]) && f.floor_area >= 100)
+            return up("required", `${N_JO} 第47条第1項第7号`, `地階・無窓階で床面積${f.floor_area}㎡（100㎡以上）`, { scope: "その階", caveats: [spExc] });
+          if (inList(o, ["4", "9イ"]) && f.floor_area >= 300)
+            return up("required", `${N_JO} 第47条第1項第7号`, `地階・無窓階で床面積${f.floor_area}㎡（300㎡以上）`, { scope: "その階", caveats: [spExc] });
+          if (inList(o, ["5ロ", "7", "8", "12イ"]) && f.floor_area >= 2000)
+            return up("required", `${N_JO} 第47条第1項第5号`, `地階・無窓階で床面積${f.floor_area}㎡（2,000㎡以上）`, { scope: "その階", caveats: [spExc] });
+          if (inList(o, ["16イ"]) && f.floor_area >= 100)
+            return up("conditional", `${N_JO} 第47条第1項第6号・第8号`, "複合用途の地階・無窓階は、(2)項・(3)項の部分が100㎡以上、又は(5)項ロ・(7)・(8)・(12)項の部分が2,000㎡以上なら必要", { scope: "その階", missing: ["occupancy"] });
+          if (inList(o, ["16ロ"]) && f.floor_area >= 2000)
+            return up("conditional", `${N_JO} 第47条第1項第6号`, "複合用途の地階・無窓階は、(5)項ロ・(7)・(8)・(12)項の部分の床面積の合計が2,000㎡以上なら必要", { scope: "その階", missing: ["occupancy"] });
+        }
+      }
+      if (f.height === undefined && f.floors_above !== undefined && f.floors_above >= 9 && base.result === "not_required")
+        return up("conditional", `${N_JO} 第47条第1項第4号`, "高さ31mを超える部分があれば、その部分に必要", { missing: ["height"] });
+      if (inList(o, ["2", "3", "16イ"])) return note(base, "地階・無窓階・4階以上に達する吹抜けを共有する(2)項・(3)項ロの階は、床面積の合計で必要になる場合がある（名古屋市火災予防条例第47条第1項第2号・第3号）");
+      return base;
+    }
+    case "auto_alarm": {
+      if (inList(o, ["16ロ"]) && f.total_area !== undefined) {
+        if (f.total_area >= 1000) return up("required", `${N_JO} 第49条第1項第2号`, `(16)項ロで延べ面積${f.total_area}㎡（1,000㎡以上）`);
+        const fr = f.building_class === "fireproof" || f.building_class === "quasi_fireproof" || (f.structure !== undefined && f.structure !== "other");
+        if (f.total_area >= 300 && !fr)
+          return up("conditional", `${N_JO} 第49条第1項第1号`, "耐火構造・準耐火建築物でない(16)項ロで、(12)〜(14)項の部分の上階を共同住宅に使うものは延べ300㎡以上で必要", {
+            assertive: false,
+            missing: f.building_class === undefined && f.structure === undefined ? ["building_class"] : [],
+          });
+      }
+      return base;
+    }
+    case "emergency_alarm":
+      if (inList(o, ["10"])) return note(base, "地下に設置する車両の停車場は、非常ベル＋放送設備又は自動式サイレン＋放送設備が必要（名古屋市火災予防条例第50条）");
+      return base;
+    case "evac_device": {
+      if (inList(o, ["5"]) && f.floor !== undefined && f.floor >= 2) {
+        const b = `${N_JO} 第52条第1項`;
+        const fireproof = f.structure === "fireproof" || f.structure === "fireproof_flame_retardant";
+        if (fireproof) return base;
+        if (f.direct_stairs === undefined)
+          return up("conditional", b, "特定主要構造部が耐火構造でない(5)項の2階以上の階は、直通階段が2以上なければ収容人員にかかわらず必要", {
+            missing: ["direct_stairs", ...(f.structure === undefined ? (["structure"] as const) : [])],
+          });
+        if (f.direct_stairs < 2) {
+          if (f.structure === undefined)
+            return up("conditional", b, "直通階段が1つの(5)項の2階以上の階は、特定主要構造部が耐火構造でなければ収容人員にかかわらず必要", { missing: ["structure"] });
+          return up("required", b, `特定主要構造部が耐火構造でない(5)項の${f.floor}階で、直通階段が${f.direct_stairs}つ`, {
+            scope: "その階",
+            caveats: ["避難上有効な開口部のない壁で区画された部分がある場合は、その部分ごとに直通階段の数を数える"],
+          });
+        }
+      }
+      return base;
+    }
+    case "standpipe": {
+      if (inList(o, ["1", "2", "3", "4", "10", "13"]) && f.floor !== undefined && (f.floor < 0 || (f.windowless === true && f.floor >= 3)) && f.floor_area !== undefined) {
+        const t = inList(o, ["1"]) && f.floor < 0 ? 500 : 1000;
+        if (f.floor_area >= t)
+          return up("required", `${N_JO} 第54条第1項第1号`, `地階・無窓階（1階・2階を除く）で床面積${f.floor_area}㎡（${t.toLocaleString()}㎡以上）`, { scope: "その階" });
+      }
+      return note(base, "平屋建以外で、屋上の回転翼航空機の発着場や駐車場の部分が200㎡以上なら必要（名古屋市火災予防条例第54条第1項第2号）");
+    }
+    case "emergency_outlet": {
+      if (f.floor !== undefined && f.floor < 0 && f.floor_area !== undefined) {
+        const t = inList(o, ["1"]) ? 500 : inList(o, ["2", "3", "4", "10", "13"]) ? 1000 : null;
+        if (t !== null && f.floor_area >= t)
+          return up("required", `${N_JO} 第55条第1項`, `地階の部分で床面積${f.floor_area}㎡（${t.toLocaleString()}㎡以上）`, { scope: "地階" });
+      }
+      return base;
+    }
+    default:
+      return base;
+  }
+}
+
 export type InstallJurisdiction = "jp" | "kyoto-city" | "tokyo-tfd" | "nagoya-city" | "osaka-city" | "yokohama-city";
 
 export function judge(equipment: Equipment, facts: Facts, jurisdiction: InstallJurisdiction = "jp"): Verdict {
@@ -855,6 +997,7 @@ export function judge(equipment: Equipment, facts: Facts, jurisdiction: InstallJ
   const base = JUDGES[equipment]({ o, f: facts });
   if (jurisdiction === "kyoto-city") return kyotoOverlay(base, o, facts);
   if (jurisdiction === "tokyo-tfd") return tokyoOverlay(base, o, facts);
+  if (jurisdiction === "nagoya-city") return nagoyaOverlay(base, o, facts);
   if (jurisdiction !== "jp") return { ...base, caveats: [...base.caveats, "この管轄の火災予防条例による上乗せは、まだ判定に入っていない"] };
   return base;
 }
