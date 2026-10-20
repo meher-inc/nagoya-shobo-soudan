@@ -12,7 +12,9 @@ export interface Env {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   STRIPE_SECRET_KEY?: string;
+  /** 省略可。なければ stripe-setup.ts が lookup_key で探し、なければ作る */
   STRIPE_PRICE_ID?: string;
+  /** 省略可。なければ stripe-setup.ts が Webhook を作り、秘密値を D1 の settings に保存する */
   STRIPE_WEBHOOK_SECRET?: string;
   /** Local E2E only. Never set in production. */
   E2E_MODE?: string;

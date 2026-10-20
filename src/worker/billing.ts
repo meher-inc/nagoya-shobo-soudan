@@ -1,30 +1,20 @@
 import { Hono } from "hono";
 import type { AppEnv, Env } from "./env";
+import { ensureWebhook, priceId, stripeApi, webhookSecrets } from "./stripe-setup";
 
 export const billing = new Hono<AppEnv>();
 
-async function stripe(env: Env, path: string, params: Record<string, string>) {
-  const res = await fetch(`${env.STRIPE_API_BASE}/v1/${path}`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams(params),
-  });
-  const body = (await res.json()) as Record<string, unknown>;
-  if (!res.ok) throw new Error(`Stripe ${path} ${res.status}`);
-  return body;
-}
+const stripe = (env: Env, path: string, params: Record<string, string>) => stripeApi(env, "POST", path, params);
 
 billing.post("/checkout", async (c) => {
   const user = c.get("user");
   if (!user || user.is_anonymous) return c.json({ error: "login_required" }, 401);
-  if (!c.env.STRIPE_SECRET_KEY || !c.env.STRIPE_PRICE_ID) return c.json({ error: "billing_unavailable" }, 503);
+  if (!c.env.STRIPE_SECRET_KEY) return c.json({ error: "billing_unavailable" }, 503);
   const origin = new URL(c.req.url).origin;
+  await ensureWebhook(c.env, c.env.CANONICAL_ORIGIN ?? origin);
   const params: Record<string, string> = {
     mode: "subscription",
-    "line_items[0][price]": c.env.STRIPE_PRICE_ID,
+    "line_items[0][price]": await priceId(c.env),
     "line_items[0][quantity]": "1",
     client_reference_id: user.id,
     "subscription_data[metadata][user_id]": user.id,
@@ -76,10 +66,12 @@ type StripeSubscription = { id: string; customer: string; status: string; curren
 export const stripeWebhook = new Hono<AppEnv>();
 
 stripeWebhook.post("/", async (c) => {
-  const secret = c.env.STRIPE_WEBHOOK_SECRET;
+  const secrets = await webhookSecrets(c.env);
   const signature = c.req.header("stripe-signature");
   const payload = await c.req.text();
-  if (!secret || !signature || !(await verifySignature(payload, signature, secret))) {
+  let valid = false;
+  for (const secret of secrets) if (signature && (await verifySignature(payload, signature, secret))) valid = true;
+  if (!valid) {
     return c.json({ error: "invalid_signature" }, 400);
   }
   const event = JSON.parse(payload) as { id: string; type: string; data: { object: Record<string, unknown> } };

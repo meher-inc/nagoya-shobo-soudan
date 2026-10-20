@@ -5,6 +5,7 @@ import { auth } from "./auth";
 import { billing, stripeWebhook } from "./billing";
 import { chat, conversations } from "./chat";
 import { SERVICE } from "../config/service";
+import { withSharedSecrets } from "./secrets";
 
 const app = new Hono<AppEnv>();
 
@@ -104,4 +105,8 @@ app.get("*", async (c) => {
   });
 });
 
-export default { fetch: app.fetch } satisfies ExportedHandler<AppEnv["Bindings"]>;
+export default {
+  async fetch(request, env, ctx) {
+    return app.fetch(request, await withSharedSecrets(env), ctx);
+  },
+} satisfies ExportedHandler<AppEnv["Bindings"]>;

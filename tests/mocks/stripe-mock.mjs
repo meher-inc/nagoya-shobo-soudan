@@ -5,12 +5,17 @@ import { createHmac } from "node:crypto";
 
 const PORT = Number(process.env.STRIPE_MOCK_PORT ?? 12111);
 const WORKER = process.env.WORKER_ORIGIN ?? "http://localhost:8787";
-const SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "whsec_e2e";
 const sessions = new Map();
+// The worker creates its own Price and webhook endpoint (src/worker/stripe-setup.ts); the mock keeps them here.
+const prices = new Map();
+const endpoints = new Map();
+let deletedEndpoints = 0;
 
 function sign(payload) {
   const t = Math.floor(Date.now() / 1000);
-  const v1 = createHmac("sha256", SECRET).update(`${t}.${payload}`).digest("hex");
+  const endpoint = [...endpoints.values()].at(-1);
+  const secret = endpoint?.secret ?? "whsec_unconfigured";
+  const v1 = createHmac("sha256", secret).update(`${t}.${payload}`).digest("hex");
   return `t=${t},v1=${v1}`;
 }
 
@@ -32,14 +37,67 @@ function readBody(req) {
   });
 }
 
+const json = (res, status, body) => {
+  res.writeHead(status, { "content-type": "application/json" });
+  res.end(JSON.stringify(body));
+};
+const rand = () => Math.random().toString(36).slice(2);
+
 createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
+  if (url.pathname.startsWith("/v1/") && !req.headers.authorization?.startsWith("Bearer sk_test_")) {
+    json(res, 401, { error: { message: "invalid key" } });
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/v1/prices") {
+    const keys = url.searchParams.getAll("lookup_keys[]");
+    json(res, 200, { data: [...prices.values()].filter((p) => keys.includes(p.lookup_key)) });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/v1/prices") {
+    const body = Object.fromEntries(await readBody(req));
+    if (body.currency !== "jpy" || !Number(body.unit_amount) || body["recurring[interval]"] !== "month" || !body.lookup_key) {
+      json(res, 400, { error: { message: "invalid price" } });
+      return;
+    }
+    const price = { id: `price_${rand()}`, lookup_key: body.lookup_key, unit_amount: Number(body.unit_amount) };
+    prices.set(price.id, price);
+    json(res, 200, price);
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/v1/webhook_endpoints") {
+    json(res, 200, { data: [...endpoints.values()].map(({ id, url }) => ({ id, url })) });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/v1/webhook_endpoints") {
+    const body = await readBody(req);
+    const ep = { id: `we_${rand()}`, url: body.get("url"), secret: `whsec_${rand()}`, events: [...body.entries()].filter(([k]) => k.startsWith("enabled_events")).map(([, v]) => v) };
+    endpoints.set(ep.id, ep);
+    json(res, 200, ep);
+    return;
+  }
+  const ep = url.pathname.match(/^\/v1\/webhook_endpoints\/(we_\w+)$/);
+  if (req.method === "DELETE" && ep) {
+    endpoints.delete(ep[1]);
+    deletedEndpoints++;
+    json(res, 200, { id: ep[1], deleted: true });
+    return;
+  }
+  // Test-only view of what the worker set up.
+  if (req.method === "GET" && url.pathname === "/state") {
+    json(res, 200, { prices: [...prices.values()], endpoints: [...endpoints.values()].map(({ url, events }) => ({ url, events })), deletedEndpoints });
+    return;
+  }
   if (req.method === "POST" && url.pathname === "/v1/checkout/sessions") {
     if (!req.headers.authorization?.startsWith("Bearer sk_test_")) {
       res.writeHead(401).end("{}");
       return;
     }
     const body = await readBody(req);
+    if (!prices.has(body.get("line_items[0][price]"))) {
+      json(res, 400, { error: { message: "No such price" } });
+      return;
+    }
     const id = `cs_test_${Math.random().toString(36).slice(2)}`;
     sessions.set(id, Object.fromEntries(body));
     res.writeHead(200, { "content-type": "application/json" });

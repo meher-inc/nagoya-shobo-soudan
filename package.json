@@ -12,7 +12,7 @@
     "test:e2e": "playwright test",
     "test": "pnpm run typecheck && pnpm run test:unit && pnpm run test:e2e",
     "screenshots": "SCREENSHOTS=1 playwright test --project=desktop-chrome",
-    "deploy": "vite build && wrangler d1 migrations apply DB --remote && wrangler deploy"
+    "deploy": "vite build && node scripts/ensure-d1.mjs && wrangler d1 migrations apply DB --remote && wrangler deploy"
   },
   "dependencies": {
     "hono": "4.13.13",

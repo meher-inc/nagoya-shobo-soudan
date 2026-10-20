@@ -10,8 +10,6 @@ const testVars = [
   "GOOGLE_CLIENT_SECRET:e2e-secret",
   "STRIPE_API_BASE:http://localhost:12111",
   "STRIPE_SECRET_KEY:sk_test_e2e",
-  "STRIPE_PRICE_ID:price_e2e",
-  "STRIPE_WEBHOOK_SECRET:whsec_e2e",
 ]
   .map((v) => `--var ${v}`)
   .join(" ");
