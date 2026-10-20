@@ -17,6 +17,8 @@ export interface Env {
   /** Local E2E only. Never set in production. */
   E2E_MODE?: string;
   AI_MOCK?: string;
+  /** Messages one user may send per JST day. Defaults to 20. */
+  USER_DAILY_MESSAGE_LIMIT?: string;
 }
 
 export interface User {

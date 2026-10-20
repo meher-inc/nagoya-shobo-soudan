@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { AppEnv, Env } from "./env";
 import { createAnonymousUser } from "./session";
+import { takeUserQuota } from "./caps";
 import { ASSISTANT_FALLBACK, SYSTEM_PROMPT } from "../config/prompt";
 import { runRules, rulesNote } from "../rules/extract.ts";
 
@@ -137,11 +138,13 @@ chat.post("/", async (c) => {
   if (message.length > MAX_INPUT) return c.json({ error: "too_long" }, 400);
 
   // 相談は無料。セッションのない最初の送信で匿名の利用者を作る（同じ回線から24時間に作れる数に上限あり）。
+  // 1人あたりの送信は日本時間の1日ごとに USER_DAILY_MESSAGE_LIMIT 件まで（caps.ts）。
   const user = c.get("user") ?? (await createAnonymousUser(c));
   if (!user) return c.json({ error: "trial_limit" }, 429);
 
   const { success } = await c.env.CHAT_LIMITER.limit({ key: user.id });
   if (!success) return c.json({ error: "rate_limited" }, 429);
+  if (!(await takeUserQuota(c.env, user.id))) return c.json({ error: "user_limit" }, 429);
 
   const db = c.env.DB;
   const now = Date.now();

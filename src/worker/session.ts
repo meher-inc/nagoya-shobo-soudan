@@ -90,7 +90,7 @@ export async function destroySession(c: Context<AppEnv>): Promise<void> {
 export type AccessState = "free" | "paid";
 
 /**
- * 相談は無料（回数の制限は chat.ts のレート制限と、匿名利用の回線ごとの上限だけ）。無料期間は廃止したので、期限切れの状態はない。
+ * 相談は無料（回数の制限は caps.ts の1日の上限、chat.ts のレート制限、匿名利用の回線ごとの上限）。無料期間は廃止したので、期限切れの状態はない。
  * "paid" は以前に有料プランへ登録した利用者で、表示とお支払い管理の入口にだけ使う。
  */
 export function accessOf(user: User | null): AccessState {

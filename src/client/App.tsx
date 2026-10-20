@@ -116,6 +116,8 @@ export function App({ initialMe }: { initialMe: Me }) {
         setInput(message);
         if (err instanceof ApiError && err.code === "trial_limit") {
           setSheet("login");
+        } else if (err instanceof ApiError && err.code === "user_limit") {
+          flash("本日の相談回数の上限に達しました。明日またご利用ください。緊急時は119番へ。");
         } else if (err instanceof ApiError && err.status === 429) {
           flash("送信が続いています。1分ほど待ってからもう一度お試しください。");
         } else {

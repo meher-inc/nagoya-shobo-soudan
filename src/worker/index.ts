@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { AppEnv } from "./env";
 import { loadUser, publicMe } from "./session";
+import { jstDay } from "./caps";
 import { auth } from "./auth";
 import { billing, stripeWebhook } from "./billing";
 import { chat, conversations } from "./chat";
@@ -52,6 +53,18 @@ app.post("/api/test/expire-trial", async (c) => {
   if (c.env.E2E_MODE !== "1" || !isLocal(c.req.url) || !user) return c.notFound();
   await c.env.DB.prepare("UPDATE users SET trial_started_at = ? WHERE id = ?")
     .bind(Date.now() - 25 * 60 * 60 * 1000, user.id)
+    .run();
+  return c.json({ ok: true });
+});
+
+// Local E2E only: use up today's message limit for the current user.
+app.post("/api/test/fill-quota", async (c) => {
+  const user = c.get("user");
+  if (c.env.E2E_MODE !== "1" || !isLocal(c.req.url) || !user) return c.notFound();
+  await c.env.DB.prepare(
+    "INSERT INTO user_daily_usage (user_id, day, messages) VALUES (?1, ?2, ?3) ON CONFLICT(user_id, day) DO UPDATE SET messages = ?3",
+  )
+    .bind(user.id, jstDay(), Number(c.env.USER_DAILY_MESSAGE_LIMIT || 20))
     .run();
   return c.json({ ok: true });
 });

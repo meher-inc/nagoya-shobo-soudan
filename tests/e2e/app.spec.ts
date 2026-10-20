@@ -227,6 +227,20 @@ test("a stalled AI stream ends with a retry note instead of hanging @local", asy
   await expect(page.getByTestId("send-button")).toHaveAttribute("aria-label", "送信");
 });
 
+test("the daily message limit stops sending with a notice @local", async ({ page }) => {
+  await page.goto("/");
+  await ask(page, "消火器は必要ですか");
+  expect((await page.request.post("/api/test/fill-quota")).ok()).toBeTruthy();
+  const res = await page.request.post("/api/chat", { data: { message: "もう1件" } });
+  expect(res.status()).toBe(429);
+  expect((await res.json()).error).toBe("user_limit");
+  await page.getByTestId("composer-input").fill("上限を超えた質問");
+  await page.getByTestId("send-button").click();
+  await expect(page.getByTestId("toast")).toContainText("本日の相談回数の上限");
+  await expect(page.getByTestId("composer-input")).toHaveValue("上限を超えた質問");
+  await expect(page.getByTestId("msg-user")).toHaveCount(1);
+});
+
 test("conversation can be deleted from history @local", async ({ page }) => {
   await login(page);
   await ask(page, "削除する相談");

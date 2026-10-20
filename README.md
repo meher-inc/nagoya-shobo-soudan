@@ -3,7 +3,7 @@
 名古屋市内の事業所向けに、消防の届出・防火管理・消防用設備等・危険物などの相談へAIが答える、モバイルファーストのWebサービスです。[meher-inc/service-template](https://github.com/meher-inc/service-template)（東京の消防相談 [meher-inc/shobo-soudan](https://github.com/meher-inc/shobo-soudan) の UI と基盤）から作りました。
 
 - 白ベースの Liquid Glass、スプリングのアニメーション、全画面スケルトン
-- ログインなしで即相談。相談は無料（短時間の連続送信の制限と、ログインなしで同じ回線から始められる数の上限のみ）
+- ログインなしで即相談。相談は無料（1人あたり日本時間の1日に20件まで。ほかに短時間の連続送信の制限と、ログインなしで同じ回線から始められる数の上限）
 - ログインは Google のみ
 - Cloudflare Workers・D1・Workers AI で動く
 - 実ブラウザの E2E（Chromium・WebKit、Pixel 7・iPhone 15・デスクトップ）でデザイン基準まで検査
@@ -29,7 +29,7 @@ Cloudflare Worker (Hono)
 ├─ Static Assets  … Vite でビルドした Preact SPA（dist/）
 ├─ D1             … users / sessions / conversations / messages / stripe_events
 ├─ Workers AI     … ストリーミング回答（モデルは wrangler.jsonc の AI_MODEL）
-└─ Rate Limiting  … 利用者ごとに 20回/分
+└─ Rate Limiting  … 利用者ごとに 20回/分（D1 の user_daily_usage で1人1日20件まで）
 外部: Google OAuth 2.0（PKCE）/ Stripe Customer Portal・Webhook（以前の月額プランの解約とカード変更）
 ```
 
