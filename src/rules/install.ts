@@ -1,6 +1,6 @@
 // 消防用設備等の設置義務と防火管理者の選任義務を、消防法施行令の条文どおりに決定的に判定する。
 // LLM には判定させない（要件定義書 5章 F2、データスキーマ設計 4章）。
-// 根拠: 消防法施行令 第1条の2・第10条・第11条・第12条・第21条・第22条・第24条・第25条・第26条（e-Gov）
+// 根拠: 消防法施行令 第1条の2・第10条・第11条・第12条・第19条・第21条〜第29条の2（e-Gov）
 // 条例の上乗せ・本部の運用・令第32条の特例・総務省令による免除はここでは扱わず、caveats に書く。
 
 export type Equipment =
@@ -12,7 +12,13 @@ export type Equipment =
   | "leak_alarm"
   | "emergency_alarm"
   | "evac_device"
-  | "guide_light";
+  | "guide_light"
+  | "fire_report"
+  | "outdoor_hydrant"
+  | "fire_water"
+  | "smoke_control"
+  | "standpipe"
+  | "emergency_outlet";
 
 export const EQUIPMENT_LABEL: Record<Equipment, string> = {
   fire_manager: "防火管理者",
@@ -24,6 +30,12 @@ export const EQUIPMENT_LABEL: Record<Equipment, string> = {
   emergency_alarm: "非常警報器具・非常警報設備",
   evac_device: "避難器具",
   guide_light: "誘導灯・誘導標識",
+  fire_report: "消防機関へ通報する火災報知設備",
+  outdoor_hydrant: "屋外消火栓設備",
+  fire_water: "消防用水",
+  smoke_control: "排煙設備",
+  standpipe: "連結送水管",
+  emergency_outlet: "非常コンセント設備",
 };
 
 export type Structure =
@@ -51,6 +63,10 @@ export type Facts = {
   floor_capacity?: number;
   windowless?: boolean; // その階が無窓階
   lower_floor_risky_use?: boolean; // 下階に (1)〜(4)・(9)・(12)イ・(13)イ・(14)・(15) 項の用途がある（令25条）
+  building_class?: "fireproof" | "quasi_fireproof" | "other"; // 耐火建築物・準耐火建築物・その他（令19条・27条）
+  lower_floors_area?: number; // 1階（2階建以上は1階と2階）の床面積の合計（令19条・27条）
+  site_area?: number; // 敷地面積（令27条）
+  height?: number; // 建物の高さ（m、令27条）
 };
 
 export type Result = "required" | "not_required" | "conditional";
@@ -467,6 +483,120 @@ function guideLight({ o, f }: Ctx): Verdict {
   return verdict(e, "conditional", b, "用途の細分が分からない", { missing: ["occupancy"] });
 }
 
+// ---- 消防機関へ通報する火災報知設備（令23条）----
+
+function fireReport({ o, f }: Ctx): Verdict {
+  const e: Equipment = "fire_report";
+  const phone = "消防機関へ常時通報できる電話を設けたときは設置しないことができる（同条第3項）";
+  if (inList(o, ["6イ(1)", "6イ(2)", "6イ(3)", "6ロ", "16の2", "16の3"]))
+    return verdict(e, "required", `${ART} 第二十三条第一項第一号`, "この用途は延べ面積にかかわらず必要", {
+      caveats: inList(o, ["16の2", "16の3"]) ? [phone] : [],
+    });
+  let t: number | null = null;
+  let item = "";
+  if (inList(o, ["1", "2", "4", "5イ", "6イ(4)", "6ハ", "6ニ", "12", "17"])) [t, item] = [500, "第二号"];
+  else if (inList(o, ["3", "5ロ", ...range(7, 11), "13", "14", "15"])) [t, item] = [1000, "第三号"];
+  if (inList(o, ["6イ", "6ロ"]) === null || (inList(o, ["6イ"]) === true && o.num === undefined))
+    return verdict(e, "conditional", `${ART} 第二十三条第一項`, "(6)項イの細分で基準が変わる", { missing: ["occupancy"] });
+  if (inList(o, ["16イ", "16ロ"])) return verdict(e, "conditional", `${ART} 第九条・第二十三条`, "複合用途は用途ごとの部分に分けて判定する", { missing: ["occupancy"] });
+  if (t === null) return verdict(e, "not_required", `${ART} 第二十三条第一項`, "この用途は対象外");
+  const b = `${ART} 第二十三条第一項${item}`;
+  const noPhoneExempt = inList(o, ["5イ", "6イ(4)", "6ハ"]) === true;
+  if (f.total_area === undefined) return verdict(e, "conditional", b, `延べ面積${t}㎡以上で必要`, { missing: ["total_area"] });
+  if (f.total_area < t) return verdict(e, "not_required", b, `延べ面積${f.total_area}㎡（${t}㎡未満）`);
+  return verdict(e, "required", b, `延べ面積${f.total_area}㎡（${t}㎡以上）`, {
+    assertive: noPhoneExempt,
+    caveats: noPhoneExempt ? [] : [phone],
+  });
+}
+
+// ---- 屋外消火栓設備（令19条）----
+
+function outdoorHydrant({ o, f }: Ctx): Verdict {
+  const e: Equipment = "outdoor_hydrant";
+  const b = `${ART} 第十九条第一項`;
+  if (!inList(o, [...range(1, 15), "17", "18"]) || inList(o, ["16イ", "16ロ", "16の2", "16の3"]))
+    return verdict(e, "not_required", b, "この用途の建築物は第十九条の対象外（複合用途は用途ごとに確認）");
+  const t = f.building_class === "fireproof" ? 9000 : f.building_class === "quasi_fireproof" ? 6000 : f.building_class === "other" ? 3000 : null;
+  const area = f.lower_floors_area ?? (f.floors_above === 1 ? f.total_area : undefined);
+  if (area === undefined) {
+    if (f.total_area !== undefined && f.total_area < 3000) return verdict(e, "not_required", b, `延べ面積${f.total_area}㎡で、1階・2階の床面積の合計が3,000㎡に届かない`);
+    return verdict(e, "conditional", b, "1階（2階建以上は1階と2階）の床面積の合計が、耐火建築物9,000㎡・準耐火建築物6,000㎡・その他3,000㎡以上で必要", { missing: ["lower_floors_area", ...(t === null ? (["building_class"] as const) : [])] });
+  }
+  if (area < 3000) return verdict(e, "not_required", b, `1階・2階の床面積の合計${area}㎡（3,000㎡未満）`);
+  if (t === null) return verdict(e, "conditional", b, `1階・2階の床面積の合計${area}㎡。建物の構造で基準（9,000㎡・6,000㎡・3,000㎡）が変わる`, { missing: ["building_class"] });
+  return area >= t
+    ? verdict(e, "required", b, `1階・2階の床面積の合計${area}㎡（基準${t}㎡以上）`, { caveats: ["同一敷地内の2以上の建築物は、延焼のおそれのある部分の位置関係で1つの建築物とみなす場合がある（同条第2項）"] })
+    : verdict(e, "not_required", b, `1階・2階の床面積の合計${area}㎡（基準${t}㎡未満）`);
+}
+
+// ---- 消防用水（令27条）----
+
+function fireWater({ o, f }: Ctx): Verdict {
+  const e: Equipment = "fire_water";
+  const b = `${ART} 第二十七条第一項`;
+  const tall = f.height !== undefined && f.total_area !== undefined && f.height > 31 && f.total_area >= 25000;
+  if (tall) return verdict(e, "required", `${b}第二号`, `高さ${f.height}m（31m超）で延べ面積${f.total_area}㎡（25,000㎡以上）`, { caveats: ["延べ面積は地階を除いて計算する"] });
+  if (f.total_area !== undefined && f.total_area < 5000) return verdict(e, "not_required", b, `延べ面積${f.total_area}㎡で、第一号・第二号の規模に届かない`);
+  if (!inList(o, [...range(1, 15), "17", "18"])) {
+    if (f.height !== undefined && f.height <= 31) return verdict(e, "not_required", b, "この用途は第一号の対象外で、高さ31m以下");
+    return verdict(e, "conditional", `${b}第二号`, "高さ31m超かつ延べ面積（地階を除く）25,000㎡以上なら必要", { missing: ["height", "total_area"] });
+  }
+  return verdict(e, "conditional", b, "敷地面積20,000㎡以上で1階・2階の床面積が耐火15,000㎡・準耐火10,000㎡・その他5,000㎡以上、又は高さ31m超かつ延べ25,000㎡以上なら必要", {
+    missing: [...(f.site_area === undefined ? (["site_area"] as const) : []), ...(f.lower_floors_area === undefined ? (["lower_floors_area"] as const) : []), ...(f.height === undefined ? (["height"] as const) : [])],
+  });
+}
+
+// ---- 排煙設備（令28条）----
+
+function smokeControl({ o, f }: Ctx): Verdict {
+  const e: Equipment = "smoke_control";
+  const b = `${ART} 第二十八条第一項`;
+  if (inList(o, ["16の2"])) {
+    if (f.total_area === undefined) return verdict(e, "conditional", `${b}第一号`, "地下街は延べ1,000㎡以上で必要", { missing: ["total_area"] });
+    return f.total_area >= 1000 ? verdict(e, "required", `${b}第一号`, `地下街で延べ面積${f.total_area}㎡（1,000㎡以上）`) : verdict(e, "not_required", `${b}第一号`, `地下街で延べ面積${f.total_area}㎡（1,000㎡未満）`);
+  }
+  const caveats: string[] = [];
+  if (inList(o, ["1"])) caveats.push("舞台部の床面積が500㎡以上なら舞台部に必要（同項第二号）");
+  if (inList(o, ["2", "4", "10", "13"])) {
+    if (f.floor !== undefined && (f.floor < 0 || f.windowless) && f.floor_area !== undefined)
+      return f.floor_area >= 1000
+        ? verdict(e, "required", `${b}第三号`, `地階・無窓階で床面積${f.floor_area}㎡（1,000㎡以上）`, { scope: "その階" })
+        : verdict(e, "not_required", `${b}第三号`, `地階・無窓階で床面積${f.floor_area}㎡（1,000㎡未満）`);
+    if (f.total_area !== undefined && f.total_area < 1000) return verdict(e, "not_required", b, `延べ面積${f.total_area}㎡で、床面積1,000㎡以上の地階・無窓階はない`);
+    return verdict(e, "conditional", `${b}第三号`, "地階・無窓階で床面積1,000㎡以上の階があれば、その階に必要", { missing: ["floor", "floor_area"] });
+  }
+  return verdict(e, "not_required", b, "この用途は消防法施行令の排煙設備の対象外", { caveats: [...caveats, "建築基準法の排煙設備は別に必要な場合がある"] });
+}
+
+// ---- 連結送水管（令29条）----
+
+function standpipe({ o, f }: Ctx): Verdict {
+  const e: Equipment = "standpipe";
+  const b = `${ART} 第二十九条第一項`;
+  if (inList(o, ["18"])) return verdict(e, "required", `${b}第四号`, "アーケードは規模にかかわらず必要");
+  if (inList(o, ["16の2"]) && f.total_area !== undefined && f.total_area >= 1000) return verdict(e, "required", `${b}第三号`, `地下街で延べ面積${f.total_area}㎡（1,000㎡以上）`);
+  if (f.floors_above === undefined) return verdict(e, "conditional", b, "地上7階以上、又は地上5階以上で延べ6,000㎡以上なら必要", { missing: ["floors_above"] });
+  if (f.floors_above >= 7) return verdict(e, "required", `${b}第一号`, `地階を除く階数が${f.floors_above}（7以上）`);
+  if (f.floors_above >= 5) {
+    if (f.total_area === undefined) return verdict(e, "conditional", `${b}第二号`, "地上5階以上で延べ6,000㎡以上なら必要", { missing: ["total_area"] });
+    if (f.total_area >= 6000) return verdict(e, "required", `${b}第二号`, `地上${f.floors_above}階で延べ面積${f.total_area}㎡（6,000㎡以上）`);
+  }
+  return verdict(e, "not_required", b, `地上${f.floors_above}階${f.total_area !== undefined ? `、延べ面積${f.total_area}㎡` : ""}で基準に届かない`, { caveats: ["道路の用に供される部分がある場合は必要（同項第五号）"] });
+}
+
+// ---- 非常コンセント設備（令29条の2）----
+
+function emergencyOutlet({ o, f }: Ctx): Verdict {
+  const e: Equipment = "emergency_outlet";
+  const b = `${ART} 第二十九条の二第一項`;
+  if (inList(o, ["16の2"]) && f.total_area !== undefined && f.total_area >= 1000) return verdict(e, "required", `${b}第二号`, `地下街で延べ面積${f.total_area}㎡（1,000㎡以上）`);
+  if (f.floors_above === undefined) return verdict(e, "conditional", b, "地上11階以上なら必要", { missing: ["floors_above"] });
+  return f.floors_above >= 11
+    ? verdict(e, "required", `${b}第一号`, `地階を除く階数が${f.floors_above}（11以上）`, { scope: "11階以上の階" })
+    : verdict(e, "not_required", b, `地上${f.floors_above}階（11階未満）`);
+}
+
 const JUDGES: Record<Equipment, (c: Ctx) => Verdict> = {
   fire_manager: fireManager,
   extinguisher,
@@ -477,6 +607,12 @@ const JUDGES: Record<Equipment, (c: Ctx) => Verdict> = {
   emergency_alarm: emergencyAlarm,
   evac_device: evacDevice,
   guide_light: guideLight,
+  fire_report: fireReport,
+  outdoor_hydrant: outdoorHydrant,
+  fire_water: fireWater,
+  smoke_control: smokeControl,
+  standpipe,
+  emergency_outlet: emergencyOutlet,
 };
 
 /** 用途が list のどれかに当たるか（細分が分からなければ null） */

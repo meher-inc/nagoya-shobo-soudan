@@ -23,6 +23,11 @@ const BY_ARTICLE: Record<string, Equipment> = {
   第二十四条: "emergency_alarm",
   第二十五条: "evac_device",
   第二十六条: "guide_light",
+  第十九条: "outdoor_hydrant",
+  第二十三条: "fire_report",
+  第二十八条: "smoke_control",
+  第二十九条: "standpipe",
+  第二十九条の二: "emergency_outlet",
 };
 
 // 問題文・注記に書かれているが facts に入っていない条件
@@ -31,13 +36,10 @@ const EXTRA_FACTS: Record<string, Partial<Facts>> = {
 };
 
 // 評価セットと判定が食い違うもの（確認待ち）
-const KNOWN_DIFF: Record<string, string> = {
-  "inst-016":
-    "令11条2項の倍読みは同条1項4号（地下街）にも及ぶ。地下街は通常、耐火構造＋内装難燃以上のため基準は450㎡になり、200㎡では不要の可能性。構造が不明なので判定は「条件次第」",
-};
+const KNOWN_DIFF: Record<string, string> = {};
 
 test("評価セットに設置義務の問いがある", () => {
-  assert.ok(cases.length >= 47);
+  assert.ok(cases.length >= 55);
 });
 
 for (const c of cases) {
@@ -52,18 +54,20 @@ for (const c of cases) {
     }
     const exp = c.expect;
     if (exp === "不要") assert.equal(v.result, "not_required", v.reason);
+    else if (exp.startsWith("条件次第")) assert.equal(v.result, "conditional", v.reason);
     else if (exp === "誘導灯は不要、誘導標識が必要") {
       assert.equal(v.result, "not_required", v.reason);
       assert.equal(v.detail, "誘導標識");
     } else {
       assert.equal(v.result, "required", v.reason);
+      if (exp === "原則必要") assert.equal(v.assertive, false);
       if (exp === "11階以上の階に必要") assert.equal(v.scope, "11階以上の階");
       if (exp === "非常警報器具が必要") assert.equal(v.detail, "非常警報器具");
       if (exp.startsWith("非常ベル・自動式サイレン・放送設備")) assert.match(v.detail ?? "", /いずれか/);
       if (exp.startsWith("非常ベル＋放送設備")) assert.match(v.detail ?? "", /放送設備$/);
     }
     // 評価セットで「断定しない」問いは、判定も断定しない
-    if (!c.assertive) assert.equal(v.assertive, false, "断定してはいけない問いで断定している");
+    if (!c.assertive) assert.ok(v.result === "conditional" || !v.assertive, "断定してはいけない問いで断定している");
   });
 }
 
