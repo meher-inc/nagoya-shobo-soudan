@@ -1,0 +1,44 @@
+/**
+ * 大阪市版の差し替え値（src/config/service.ts の名古屋市版を写したもの）。
+ * theme・seller・anonTrialsPerIp・suggestions は名古屋市版と同じ。
+ */
+export const SERVICE = {
+  /** 英小文字とハイフン。Worker 名・D1 名・IP ハッシュのソルトに使う。wrangler.jsonc の name と揃える */
+  id: "osaka-shobo-soudan",
+  /** 正式名称。<title>・利用規約・マニフェストに出る */
+  name: "大阪市 消防相談AI",
+  /** ヘッダーとホーム画面のアイコン名。全角8文字以内 */
+  shortName: "大阪消防相談",
+  /** 検索結果のタイトル。画面には出さない */
+  title: "大阪市の消防相談AI｜事業所の届出・防火管理・消防設備",
+  /** 検索結果の説明文。画面には出さない */
+  description:
+    "大阪市内の事業所向けに、消防の届出、防火管理、消防用設備等の点検、危険物などの疑問へAIが答えます。提出先の消防署や電子申請の案内も。",
+  /** 対象地域（構造化データの areaServed） */
+  areaServed: "大阪府大阪市",
+  /** 入力欄のプレースホルダー。キャッチコピーは書かない */
+  placeholder: "消防のことを相談",
+  /** 入力欄の上に出す質問の候補。4つ、各12文字以内 */
+  suggestions: ["店舗開業時の消防手続", "防火管理者が必要な条件", "消防設備点検の頻度", "届出の提出先と電子申請"],
+  /** 入力欄の下に出す注意書き（1行）。免責と緊急時の案内だけ */
+  notice: "AIの回答は目安です。最終確認は所轄の消防署へ。緊急時は119番。",
+  /** 利用規約 第1条（サービスの内容）の本文 */
+  serviceScope:
+    "本サービスは、大阪市内の防火対象物の関係者などからの消防に関する相談に対し、法令や手続の一般的な情報をAIによる回答で案内するものです。個別の建物についての届出の要否や法令適合の判断の確定、書類の作成・提出の代理は行いません。",
+  /** ログインなしの利用を、同じIPから24時間に何件まで開始できるか */
+  anonTrialsPerIp: 3,
+  theme: {
+    accent: "#c2410c",
+    accent2: "#fb923c",
+    ambient: ["#fed7aa", "#fde68a", "#fecdd3"],
+  },
+  seller: {
+    name: "MeHer株式会社",
+    representative: "代表取締役 丸岡 峻",
+    address: "愛知県名古屋市中村区名駅4丁目24番5号 第2森ビル401",
+    email: "info@meher-inc.co.jp",
+    court: "名古屋地方裁判所",
+  },
+} as const;
+
+export type ServiceConfig = typeof SERVICE;
