@@ -137,3 +137,35 @@ test("大規模な建物の設備は、必要か条件次第のときだけ判�
   const small = rulesNote(runRules("kyoto-city", ["平屋、延べ100㎡の事務所を使い始めます"])!);
   assert.doesNotMatch(small, /連結送水管|非常コンセント|屋外消火栓/);
 });
+
+test("特定の階の収容人員・床面積は建物全体の値として読まない", () => {
+  const f = extractFacts("京都市の事務所ビルの7階を借ります。7階の収容人員は35人、直通階段は2つです");
+  assert.equal(f.floor, 7);
+  assert.equal(f.floor_capacity, 35);
+  assert.equal(f.capacity, undefined);
+  assert.equal(f.direct_stairs, 2);
+  const b = extractFacts("物品販売店舗の地下1階、床面積1,200㎡です");
+  assert.equal(b.floor, -1);
+  assert.equal(b.floor_area, 1200);
+  assert.equal(b.total_area, undefined);
+  const w = extractFacts("3階建ての飲食店で2階、延べ200㎡、席数40席");
+  assert.equal(w.floor, 2);
+  assert.equal(w.floors_above, 3);
+  assert.equal(w.total_area, 200);
+  assert.equal(w.capacity, 40);
+  assert.equal(extractFacts("地上5階建、延べ800㎡の事務所").floor, undefined);
+});
+
+test("階が分かれば避難器具も判定し、階の収容人員で防火管理者を断定しない", () => {
+  const r = runRules("kyoto-city", ["京都市の事務所ビルの7階を借ります。7階の収容人員は35人、直通階段は2つです。避難器具はいりますか？"])!;
+  const evac = r.install.find((v) => v.equipment === "evac_device")!;
+  assert.equal(evac.result, "required");
+  assert.match(evac.basis, /京都市火災予防条例 第43条/);
+  assert.equal(r.install.find((v) => v.equipment === "fire_manager")!.result, "conditional");
+});
+
+test("露店で調理する（焼く・揚げる）なら火気を使うものとして読む", () => {
+  assert.equal(extractFacts("お祭りで露店を出してたこ焼きを焼きます").stall_fire, true);
+  assert.equal(extractFacts("屋台で唐揚げを揚げる").stall_fire, true);
+  assert.equal(extractFacts("露店で手作りの雑貨を売る").stall_fire, undefined);
+});

@@ -43,11 +43,27 @@ export function extractFacts(text: string): FilingFacts {
     if (uniq.length === 1) f.occupancy = uniq[0];
     else if (uniq.length > 1) f.occupancy = "16イ"; // 用途が複数 → 複合用途として判定し「条件次第」に倒す
   }
-  const area = t.match(/(?:延べ|延床|延べ床|床面積)?\s*(?:面積)?\s*(?:が|は)?\s*([\d,]+(?:\.\d+)?)\s*(?:㎡|m2|m²|平米|平方メートル)/);
+  // 特定の階についての記述（「7階の収容人員は35人」「地下1階の床面積1,200㎡」）。建物全体の値として読まない
+  const floorAt = t.match(/(?<![地上\d]\s*)(\d{1,2})\s*階(?!建|以上|以下|部分|段)(?=\s*(?:の|を|で|に|は|が|、))/);
+  const basementAt = t.match(/地下\s*(\d)\s*階(?!建|以上|以下|部分|段)(?=\s*(?:の|を|で|に|は|が|、))/);
+  if (basementAt) f.floor = -num(basementAt[1]);
+  else if (floorAt) f.floor = num(floorAt[1]);
+  let rest = t;
+  const floorCap = t.match(/(?:その階|(?:地下\s*)?\d{1,2}\s*階(?!建))\s*[の、,]?\s*(?:収容人員|人数|在館者|利用者)\s*(?:は|が)?\s*(?:約)?\s*([\d,]+)\s*(?:人|名)/);
+  if (floorCap && f.floor !== undefined) {
+    f.floor_capacity = num(floorCap[1]);
+    rest = rest.replace(floorCap[0], "");
+  }
+  const floorArea = t.match(/(?:その階|(?:地下\s*)?\d{1,2}\s*階(?!建))\s*[の、,]?\s*(?:床面積|面積)?\s*(?:は|が)?\s*(?:約)?\s*([\d,]+(?:\.\d+)?)\s*(?:㎡|m2|m²|平米|平方メートル)/);
+  if (floorArea && f.floor !== undefined) {
+    f.floor_area = num(floorArea[1]);
+    rest = rest.replace(floorArea[0], "");
+  }
+  const area = rest.match(/(?:延べ|延床|延べ床|床面積)?\s*(?:面積)?\s*(?:が|は)?\s*([\d,]+(?:\.\d+)?)\s*(?:㎡|m2|m²|平米|平方メートル)/);
   if (area) f.total_area = num(area[1]);
   const tsubo = !area && t.match(/([\d,]+(?:\.\d+)?)\s*坪/);
   if (tsubo) f.total_area = Math.round(num(tsubo[1]) * 3.30578);
-  const cap = t.match(/(?:収容人員|定員|従業員|席数|客席)?\s*(?:が|は)?\s*([\d,]+)\s*(?:人|名|席)/);
+  const cap = rest.match(/(?:収容人員|定員|従業員|席数|客席)?\s*(?:が|は)?\s*([\d,]+)\s*(?:人|名|席)/);
   if (cap) f.capacity = num(cap[1]);
   if (/平屋/.test(t)) f.floors_above = 1;
   const floors = t.match(/(?:地上)?\s*(\d{1,2})\s*階建/);
@@ -70,7 +86,7 @@ export function extractFacts(text: string): FilingFacts {
   if (/事業所|店舗|施設|会社/.test(t) && f.residence === undefined) f.residence = false;
   if (/建築確認(を|は)?受け(ない|ません|ず)|確認申請(は|を)?(しない|しません|不要|出さない)/.test(t)) f.building_permit = false;
   else if (/建築確認|確認申請/.test(t)) f.building_permit = true;
-  if (/露店|屋台|出店/.test(t)) f.stall_fire = /コンロ|火|ガス|炭|鉄板|発電機/.test(t) ? true : undefined;
+  if (/露店|屋台|出店/.test(t)) f.stall_fire = /コンロ|火|ガス|炭|鉄板|発電機|焼き|焼く|焼いて|揚げ|炒め|煮る|煮て|茹で|ゆで|炊く|炊いて|フライヤー|調理/.test(t) ? true : undefined;
   if (/展示場|観覧場|イベントホール|展示会場/.test(t)) f.exhibition_hall = true;
   if (/排気ダクト|排気用ダクト|ダクト付き|ダクトがある|フード/.test(t)) f.has_duct = true;
   if (/ダクトなし|ダクトはない|ダクトがない/.test(t)) f.has_duct = false;
@@ -88,7 +104,7 @@ export function extractFacts(text: string): FilingFacts {
   else if (/耐火建築物/.test(t)) f.building_class = "fireproof";
   const height = t.match(/高さ(?:が|は)?\s*([\d.]+)\s*(?:m|メートル)/);
   if (height) f.height = num(height[1]);
-  const stairs = t.match(/階段が?\s*(\d|一|二|1つ|2つ|ひとつ|ふたつ)/);
+  const stairs = t.match(/階段(?:が|は)?\s*(\d|一|二|1つ|2つ|ひとつ|ふたつ)/);
   if (stairs) f.direct_stairs = /^(1|一|1つ|ひとつ)$/.test(stairs[1]) ? 1 : 2;
   return f;
 }
@@ -163,7 +179,7 @@ export function runRules(jurisdiction: Jurisdiction, userTexts: string[]): Rules
   const scenes = detectScenes(latest).length ? detectScenes(latest) : detectScenes(userTexts.join("\n"));
   if (!facts.occupancy && !scenes.length) return null;
   const install = facts.occupancy
-    ? [...INSTALL_FOR_NOTE.map((e) => judge(e, facts as Facts, jurisdiction)), ...INSTALL_LARGE.map((e) => judge(e, facts as Facts, jurisdiction)).filter((v) => v.result !== "not_required")]
+    ? [...INSTALL_FOR_NOTE.map((e) => judge(e, facts as Facts, jurisdiction)), ...(facts.floor !== undefined ? [judge("evac_device", facts as Facts, jurisdiction)] : []), ...INSTALL_LARGE.map((e) => judge(e, facts as Facts, jurisdiction)).filter((v) => v.result !== "not_required")]
     : [];
   const filings = scenes.flatMap((s) => judgeFilings(jurisdiction, s, facts));
   return { facts, scenes, install, filings };
@@ -179,6 +195,7 @@ export function rulesNote(r: RulesResult): string {
     f.total_area !== undefined && `延べ面積 ${f.total_area}㎡`,
     f.capacity !== undefined && `収容人員 ${f.capacity}人`,
     f.floors_above !== undefined && `地上${f.floors_above}階`,
+    f.floor !== undefined && `相談の階 ${f.floor < 0 ? `地下${-f.floor}` : f.floor}階${f.floor_capacity !== undefined ? `（収容人員${f.floor_capacity}人）` : ""}${f.floor_area !== undefined ? `（床面積${f.floor_area}㎡）` : ""}`,
     f.kitchen_kw !== undefined && `厨房設備の入力 ${f.kitchen_kw}kW`,
   ].filter(Boolean);
   if (cond.length) out.push(`読み取った条件: ${cond.join("、")}`);
