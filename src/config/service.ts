@@ -34,8 +34,8 @@ export const SERVICE = {
   },
   /** 初回の相談送信から無料で使える時間 */
   trialHours: 24,
-  /** ログインなしの無料利用を、同じIPから24時間に何件まで開始できるか */
-  anonTrialsPerIp: 3,
+  /** ログインなしの相談を、同じIPから1日（日本時間）に何通まで送れるか */
+  anonMessagesPerIpPerDay: 40,
   theme: {
     /** 送信ボタン・利用者の吹き出し・強調色。白背景でコントラスト比 4.5 以上の色にする */
     accent: "#c2410c",

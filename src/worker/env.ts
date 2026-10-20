@@ -16,9 +16,18 @@ export interface Env {
   STRIPE_PRICE_ID?: string;
   /** 省略可。なければ stripe-setup.ts が Webhook を作り、秘密値を D1 の settings に保存する */
   STRIPE_WEBHOOK_SECRET?: string;
-  /** Local E2E only. Never set in production. */
+  /** Local E2E and the staging environment only. Never set in production. */
   E2E_MODE?: string;
+  /** "staging" on the staging Worker (wrangler.jsonc env.staging), where the test endpoints also work. */
+  ENV_NAME?: string;
   AI_MOCK?: string;
+  /** Comma-separated Google accounts that may open /admin. */
+  ADMIN_EMAILS?: string;
+  /** Cloudflare Turnstile (invisible). Anonymous use starts with a check only when both are set. */
+  TURNSTILE_SITEKEY?: string;
+  TURNSTILE_SECRET?: string;
+  /** Comma-separated hostnames a token may come from (defaults to the request host). */
+  TURNSTILE_HOSTNAMES?: string;
 }
 
 export interface User {
@@ -34,6 +43,9 @@ export interface User {
   is_anonymous: number;
   ip_hash: string | null;
   created_at: number;
+  consent_version: string | null;
+  consent_at: number | null;
+  revisited_at: number | null;
 }
 
 export type AppEnv = { Bindings: Env; Variables: { user: User | null } };

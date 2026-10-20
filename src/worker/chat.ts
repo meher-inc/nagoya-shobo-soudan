@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import type { AppEnv, Env } from "./env";
 import { accessOf, createAnonymousUser } from "./session";
 import { ASSISTANT_FALLBACK, SYSTEM_PROMPT } from "../config/prompt";
+import { countMetric, takeAnonIpQuota, verifyTurnstile } from "./protect";
+import { CONSENT_VERSION } from "../shared/consent";
 import { runRules, rulesNote } from "../rules/extract.ts";
 
 export const chat = new Hono<AppEnv>();
@@ -131,14 +133,29 @@ async function runModel(env: Env, messages: Msg[], question: string, realAi: boo
 }
 
 chat.post("/", async (c) => {
-  const body = (await c.req.json().catch(() => null)) as { conversationId?: string; message?: string } | null;
+  const body = (await c.req.json().catch(() => null)) as { conversationId?: string; message?: string; terms?: string; turnstile?: string } | null;
   const message = body?.message?.trim();
   if (!message) return c.json({ error: "empty" }, 400);
   if (message.length > MAX_INPUT) return c.json({ error: "too_long" }, 400);
 
-  // First message without a session starts an anonymous 24-hour trial.
-  const user = c.get("user") ?? (await createAnonymousUser(c));
-  if (!user) return c.json({ error: "trial_limit" }, 429);
+  // 入力欄の下の「送信すると利用規約とプライバシーポリシーに同意したものとみなします」を表示した画面からの送信だけを受け付ける。
+  // 古い版の画面（読み込み直し前）からの送信は、どの案内に同意したか確かめられないため断る
+  if (body?.terms !== CONSENT_VERSION) return c.json({ error: "terms_outdated" }, 428);
+
+  let user = c.get("user");
+  // 匿名利用は IP 単位でも上限をかける（Cookie を消して無料期間を取り直す使い方への対策）
+  if ((!user || user.is_anonymous) && !(await takeAnonIpQuota(c))) return c.json({ error: "ip_limit" }, 429);
+  if (!user) {
+    // 匿名利用の開始時だけ、明らかなボットを Turnstile（見えないモード）で止める。通らなければ Google ログインを案内する
+    if (!(await verifyTurnstile(c, body?.turnstile))) return c.json({ error: "login_required" }, 401);
+    // First message without a session starts an anonymous trial.
+    user = await createAnonymousUser(c);
+  }
+  if (user.consent_version !== CONSENT_VERSION) {
+    const at = Date.now();
+    await c.env.DB.prepare("UPDATE users SET consent_version = ?, consent_at = ? WHERE id = ?").bind(CONSENT_VERSION, at, user.id).run();
+    user = { ...user, consent_version: CONSENT_VERSION, consent_at: at };
+  }
   if (accessOf(user).state === "expired") return c.json({ error: "payment_required" }, 402);
 
   const { success } = await c.env.CHAT_LIMITER.limit({ key: user.id });
@@ -195,7 +212,8 @@ chat.post("/", async (c) => {
 
   // The free 24 hours start with the first answer actually being generated.
   if (!user.trial_started_at) {
-    await db.prepare("UPDATE users SET trial_started_at = ? WHERE id = ? AND trial_started_at IS NULL").bind(now, user.id).run();
+    const started = await db.prepare("UPDATE users SET trial_started_at = ? WHERE id = ? AND trial_started_at IS NULL").bind(now, user.id).run();
+    if (started.meta.changes) await countMetric(c.env, "trial_start");
   }
 
   let resolveSaved: () => void;

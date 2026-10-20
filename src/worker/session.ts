@@ -6,7 +6,6 @@ import { SERVICE } from "../config/service";
 const SESSION_COOKIE = "sid";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const TRIAL_MS = SERVICE.trialHours * 60 * 60 * 1000;
-const IP_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export function isHttps(c: Context<AppEnv>): boolean {
   return new URL(c.req.url).protocol === "https:";
@@ -55,26 +54,11 @@ export async function loadUser(c: Context<AppEnv>): Promise<User | null> {
   return row ?? null;
 }
 
-function clientIp(c: Context<AppEnv>): string {
-  // Local E2E only: lets each test act as a distinct client.
-  if (c.env.E2E_MODE === "1" && c.req.header("x-test-ip")) return c.req.header("x-test-ip")!;
-  return c.req.header("cf-connecting-ip") ?? "unknown";
-}
-
-/** Creates an anonymous trial user with a session, or returns null when this IP has used up its trials. */
-export async function createAnonymousUser(c: Context<AppEnv>): Promise<User | null> {
-  const ipHash = await sha256(`${SERVICE.id}:${clientIp(c)}`);
-  const since = Date.now() - IP_WINDOW_MS;
-  const used = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE is_anonymous = 1 AND ip_hash = ? AND created_at > ?")
-    .bind(ipHash, since)
-    .first<{ n: number }>();
-  if ((used?.n ?? 0) >= SERVICE.anonTrialsPerIp) return null;
+/** Creates an anonymous trial user with a session. Abuse limits (per-IP daily cap, Turnstile) are checked by the caller. */
+export async function createAnonymousUser(c: Context<AppEnv>): Promise<User> {
   const id = crypto.randomUUID();
-  const now = Date.now();
-  await c.env.DB.prepare(
-    "INSERT INTO users (id, google_sub, email, is_anonymous, ip_hash, created_at) VALUES (?, ?, '', 1, ?, ?)",
-  )
-    .bind(id, `anon:${id}`, ipHash, now)
+  await c.env.DB.prepare("INSERT INTO users (id, google_sub, email, is_anonymous, created_at) VALUES (?, ?, '', 1, ?)")
+    .bind(id, `anon:${id}`, Date.now())
     .run();
   await createSession(c, id);
   return (await c.env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(id).first<User>())!;
@@ -103,6 +87,8 @@ export function accessOf(user: User | null, now = Date.now()) {
 export function publicMe(user: User | null, env: Env) {
   const access = accessOf(user);
   return {
+    // Before anonymous use starts, the client gets the invisible Turnstile site key.
+    turnstileSiteKey: !user && env.TURNSTILE_SITEKEY && env.TURNSTILE_SECRET ? env.TURNSTILE_SITEKEY : null,
     user: user && !user.is_anonymous ? { email: user.email, name: user.name, picture: user.picture } : null,
     hasSession: Boolean(user),
     access: access.state,

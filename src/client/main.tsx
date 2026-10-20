@@ -16,7 +16,7 @@ function reveal() {
 
 async function start() {
   const root = document.getElementById("app")!;
-  const legal = location.pathname.match(/^\/legal\/(terms|privacy|tokushoho)$/);
+  const legal = location.pathname.match(/^\/legal\/(tokushoho)$/);
   if (legal) {
     render(<Legal page={legal[1]} />, root);
   } else {

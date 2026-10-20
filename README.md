@@ -51,7 +51,7 @@ Cloudflare Worker (Hono)
 | 認証 | Google OAuth 2.0 + PKCE を自前実装 | Google だけなので認証 SaaS は要らない。セッションはランダムなトークンの SHA-256 だけを D1 に保存し、Cookie は HttpOnly / Secure / SameSite=Lax |
 | 決済 | Stripe Checkout + Customer Portal + Webhook | カード情報を自社で扱わない。解約とカード変更は Portal に任せる。SDK を使わず fetch で呼び、Webhook の署名は Web Crypto で検証。イベントIDで二重処理を防ぐ |
 | 無料期間 | 初回送信時刻 + 設定時間をサーバーで判定 | クライアントの時計に依存しない。期限後の API は 402 を返す |
-| ログインなしの利用 | 初回送信時に匿名の利用者とセッション Cookie を発行 | 開いてすぐ相談できる。訪問しただけでは DB に行を作らない。Cookie を消しての繰り返し利用は、IP のハッシュ値ごとの開始数で抑える（IP そのものは保存しない） |
+| ログインなしの利用 | 初回送信時に匿名の利用者とセッション Cookie を発行 | 開いてすぐ相談できる。訪問しただけでは DB に行を作らない。Cookie を消しての繰り返し利用は、1 IP あたり 1 日 40 通の上限で抑える（IP は日ごとに作り直す鍵で HMAC した値だけを保存し、値と鍵は 2 日で削除）。匿名利用の開始時は Cloudflare Turnstile（見えないモード）で確認し、通らなければ Google ログインを案内する |
 | PWA | マニフェスト + Service Worker（オフライン案内だけ保存） | ホーム画面に追加できる。HTML にはログイン状態が入るので保存しない |
 | テスト | Playwright + node:test | 実ブラウザ（Chromium・WebKit）で、3つの端末サイズを自動操作する。Stripe は署名つき Webhook まで再現するローカルのモックで、Google は E2E 専用のログインで代替する。Cloudflare の認証情報があるときは本物の Workers AI も呼ぶ |
 | パッケージ管理 | pnpm | 既存のリポジトリと同じ |
@@ -78,6 +78,7 @@ pnpm screenshots       # docs/screenshots を撮り直す
 - `CLOUDFLARE_API_TOKEN` がないときは Workers AI を使わない `mock` 環境で動き、`@real-ai` のテストは飛ばします。
 - Playwright のブラウザを取得できない環境では `CHROMIUM_PATH=<chromium の実行ファイル>` を付けると Chromium だけで実行します（WebKit は GitHub Actions で確認）。
 - `BASE_URL=https://...` を付けると、ローカル専用の機能を使わないテストを本番に対して実行します。
+- 検証用（staging）: `pnpm run staging:preview` で staging の D1 にマイグレーションを当て、プレビュー版（https://prelaunch-nagoya-shobo-soudan-staging.shun-maruoka.workers.dev）を上げます。`BASE_URL=<プレビューの URL> STAGING=1 pnpm exec playwright test` で、テスト用ログインを使うテスト（`@test-login`）も含めて実行します。staging は Turnstile のテスト用キーを使います
 
 ## 本番の設定（Secrets）
 
@@ -87,7 +88,14 @@ npx wrangler secret put GOOGLE_CLIENT_SECRET
 npx wrangler secret put STRIPE_SECRET_KEY
 npx wrangler secret put STRIPE_PRICE_ID
 npx wrangler secret put STRIPE_WEBHOOK_SECRET
+npx wrangler secret put TURNSTILE_SITEKEY
+npx wrangler secret put TURNSTILE_SECRET
 ```
+
+- Turnstile: 見えないモード（Invisible）のウィジェットを作り、ホスト名に本番のドメインを登録する。サイトキーとシークレットの両方を設定したときだけ、匿名利用の開始時に確認する
+- 退会: 相談履歴とアカウントを直ちに削除し、Google アカウント識別子の HMAC と無料期間の開始日時だけを 3 年残す（再登録で無料期間を復活させない）。毎日 03:00 JST の Cron で、IP の記録（2 日）と退会者の記録（3 年）を消す
+- 管理画面: `/admin` に日別の無料開始・24時間以降の再訪・Googleログイン・課金開始（`ADMIN_EMAILS` のアカウントのみ）
+- 同意: 入力欄の下の案内（送信すると利用規約とプライバシーポリシーに同意したものとみなす）を表示し、送信時に同意の版（`src/shared/consent.ts`）と日時を記録する。規約・ポリシーは services.todokede.jp（todokede-corporate）に置き、`/legal/terms`・`/legal/privacy` はそこへ転送する
 
 - Google Cloud Console: OAuth クライアント（ウェブアプリケーション）の承認済みリダイレクト URI に `https://<host>/auth/callback` を登録
 - Stripe: `service.ts` の価格と同じ月額の Price（JPY・税込）を作る。Webhook の送信先は `https://<host>/api/stripe/webhook`、イベントは `checkout.session.completed` と `customer.subscription.created/updated/deleted`。Customer Portal の解約は「請求期間の終了時」

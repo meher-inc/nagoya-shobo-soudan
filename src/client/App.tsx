@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import {
   ApiError,
+  deleteAccount,
   deleteConversation,
   listConversations,
   loadConversation,
@@ -14,10 +15,12 @@ import {
 } from "./api";
 import { SERVICE } from "../config/service";
 import { renderMarkdown } from "./markdown";
+import { turnstileToken } from "./turnstile";
+import { LEGAL } from "../shared/consent";
 import { Sheet } from "./components/Sheet";
 import { BackIcon, ChatIcon, GoogleIcon, MenuIcon, PlusIcon, SendIcon, StopIcon, TrashIcon } from "./components/Icons";
 
-type SheetKind = "login" | "paywall" | "menu" | null;
+type SheetKind = "login" | "paywall" | "menu" | "delete" | null;
 
 function remaining(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 60000));
@@ -57,9 +60,12 @@ export function App({ initialMe }: { initialMe: Me }) {
   const [compact, setCompact] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const [loginReason, setLoginReason] = useState<"ip_limit" | "check_failed">("ip_limit");
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const thread = useRef<HTMLDivElement>(null);
   const abort = useRef<AbortController | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout>>();
   const composer = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
@@ -93,8 +99,10 @@ export function App({ initialMe }: { initialMe: Me }) {
   }
 
   function flash(text: string) {
+    // A new message restarts the timer, so an earlier toast's timer does not hide it.
+    clearTimeout(toastTimer.current);
     setToast(text);
-    setTimeout(() => setToast(null), 3200);
+    toastTimer.current = setTimeout(() => setToast(null), 3200);
   }
 
   async function refreshMe() {
@@ -117,14 +125,17 @@ export function App({ initialMe }: { initialMe: Me }) {
     const ctrl = new AbortController();
     abort.current = ctrl;
     try {
+      // Only the first send that starts anonymous use carries an invisible Turnstile token.
+      const turnstile = !me.hasSession && me.turnstileSiteKey ? await turnstileToken(me.turnstileSiteKey) : null;
       const id = await streamChat(
         message,
         conversationId,
         (chunk) => setMessages((m) => m.map((x) => (x.id === botId ? { ...x, content: x.content + chunk } : x))),
         ctrl.signal,
+        turnstile,
       );
       if (id) setConversationId(id);
-      if (!me.trialEndsAt) void refreshMe();
+      if (!me.trialEndsAt || !me.hasSession) void refreshMe();
     } catch (err) {
       if ((err as Error).name === "AbortError") {
         setMessages((m) => m.map((x) => (x.id === botId && !x.content ? { ...x, content: "（停止しました）" } : x)));
@@ -134,7 +145,12 @@ export function App({ initialMe }: { initialMe: Me }) {
         if (err instanceof ApiError && err.status === 402) {
           await refreshMe();
           setSheet("paywall");
-        } else if (err instanceof ApiError && err.code === "trial_limit") {
+        } else if (err instanceof ApiError && err.status === 428) {
+          // The terms notice changed after this screen was loaded: reload to show the current one.
+          flash("利用規約が更新されました。画面を読み込み直します。");
+          setTimeout(() => location.reload(), 1200);
+        } else if (err instanceof ApiError && (err.code === "ip_limit" || err.code === "login_required")) {
+          setLoginReason(err.code === "ip_limit" ? "ip_limit" : "check_failed");
           setSheet("login");
         } else if (err instanceof ApiError && err.status === 429) {
           flash("送信が続いています。1分ほど待ってからもう一度お試しください。");
@@ -231,6 +247,25 @@ export function App({ initialMe }: { initialMe: Me }) {
     setConversationId(null);
     setHistory(null);
     setSheet(null);
+    void refreshMe();
+  }
+
+  async function removeAccount() {
+    setDeleteBusy(true);
+    try {
+      await deleteAccount();
+      setMe({ ...me, user: null, hasSession: false, access: "trial", trialEndsAt: null });
+      setMessages([]);
+      setConversationId(null);
+      setHistory(null);
+      setSheet(null);
+      void refreshMe();
+      flash("退会しました。相談履歴とアカウント情報を削除しました。");
+    } catch {
+      flash("退会できませんでした。時間をおいてもう一度お試しください。");
+    } finally {
+      setDeleteBusy(false);
+    }
   }
 
   function onPointerMove(e: PointerEvent) {
@@ -383,14 +418,22 @@ export function App({ initialMe }: { initialMe: Me }) {
             {streaming ? <StopIcon /> : <SendIcon />}
           </button>
         </form>
-        <p class="note">{SERVICE.notice}</p>
+        <p class="note" data-testid="terms-notice">
+          第三者の氏名・住所などは入力しないでください。送信すると
+          <a href={LEGAL.terms} target="_blank" rel="noopener">利用規約</a>と<a href={LEGAL.privacy} target="_blank" rel="noopener">プライバシーポリシー</a>
+          に同意したものとみなします。{SERVICE.notice}
+        </p>
       </div>
 
       {sheet === "login" && (
         <Sheet label="ログイン" onClose={() => setSheet(null)} testId="login-sheet">
           <div class="stagger">
             <h2>Googleでログインして相談する</h2>
-            <p>この回線からのログインなしの無料利用は上限に達しました。ログインすると続けて相談できます。</p>
+            <p>
+              {loginReason === "ip_limit"
+                ? "このネットワークからのログインなしの相談は、本日の上限に達しました。ログインすると続けて相談できます。"
+                : "ログインなしでの利用を開始できませんでした。Googleでログインすると相談できます。"}
+            </p>
             <button
               class="btn btn-google rp"
               data-testid="google-login"
@@ -405,8 +448,8 @@ export function App({ initialMe }: { initialMe: Me }) {
             </button>
             {!me.loginAvailable && <p class="terms">ログイン機能は現在準備中です。</p>}
             <p class="terms">
-              初回の相談から{SERVICE.trialHours}時間は無料です。その後は{SERVICE.price.label}です。<a href="/legal/terms">利用規約</a>と
-              <a href="/legal/privacy">プライバシーポリシー</a>をご確認ください。
+              初回の相談から{SERVICE.trialHours}時間は無料です。その後は{SERVICE.price.label}です。<a href={LEGAL.terms} target="_blank" rel="noopener">利用規約</a>と
+              <a href={LEGAL.privacy} target="_blank" rel="noopener">プライバシーポリシー</a>をご確認ください。
             </p>
           </div>
         </Sheet>
@@ -511,6 +554,9 @@ export function App({ initialMe }: { initialMe: Me }) {
                   <button class="row" data-testid="logout" onClick={signOut}>
                     <span class="t">ログアウト</span>
                   </button>
+                  <button class="row" data-testid="delete-account" onClick={() => setSheet("delete")}>
+                    <span class="t">退会する</span>
+                  </button>
                 </div>
               </>
             ) : (
@@ -523,10 +569,24 @@ export function App({ initialMe }: { initialMe: Me }) {
               </div>
             )}
             <div class="links">
-              <a href="/legal/terms">利用規約</a>
-              <a href="/legal/privacy">プライバシーポリシー</a>
+              <a href={LEGAL.terms} target="_blank" rel="noopener">利用規約</a>
+              <a href={LEGAL.privacy} target="_blank" rel="noopener">プライバシーポリシー</a>
               <a href="/legal/tokushoho">特定商取引法に基づく表記</a>
             </div>
+          </div>
+        </Sheet>
+      )}
+
+      {sheet === "delete" && (
+        <Sheet label="退会" onClose={() => setSheet(null)} testId="delete-sheet">
+          <div class="stagger">
+            <h2>退会しますか</h2>
+            <p>相談履歴とアカウント情報を直ちに削除します。元に戻せません。</p>
+            {me.access === "paid" && <p>月額プランは直ちに解約され、日割りでの返金はありません。</p>}
+            <p class="terms">同じGoogleアカウントで登録し直しても、無料期間は最初の開始日時から数えます（無料期間は復活しません）。</p>
+            <button class="btn btn-primary rp" data-testid="delete-confirm" disabled={deleteBusy} onClick={() => void removeAccount()}>
+              {deleteBusy ? "削除しています…" : "退会する"}
+            </button>
           </div>
         </Sheet>
       )}

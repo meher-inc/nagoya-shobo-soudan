@@ -2,6 +2,8 @@ import { Hono, type Context } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import type { AppEnv } from "./env";
 import { base64url, createSession, destroySession, isHttps, randomToken } from "./session";
+import { countMetric, restorePreviousTrial } from "./protect";
+import type { Env } from "./env";
 
 const OAUTH_COOKIE = "oauth";
 
@@ -50,6 +52,15 @@ async function adoptAnonymous(c: Context<AppEnv>, userId: string): Promise<void>
       .bind(anon.trial_started_at, userId),
     db.prepare("DELETE FROM users WHERE id = ? AND is_anonymous = 1").bind(anon.id),
   ]);
+}
+
+async function signIn(c: Context<AppEnv>, profile: { sub: string; email: string; name?: string; picture?: string }) {
+  const userId = await upsertUser(c.env.DB, profile);
+  await adoptAnonymous(c, userId);
+  // 退会したことのある Google アカウントなら、無料期間を当時の開始日時に戻す（再登録で 24 時間を与え直さない）
+  await restorePreviousTrial(c.env, profile.sub, userId);
+  await countMetric(c.env, "google_login");
+  await createSession(c, userId);
 }
 
 auth.get("/google", async (c) => {
@@ -115,9 +126,7 @@ auth.get("/callback", async (c) => {
     return c.redirect("/?login=failed");
   }
 
-  const userId = await upsertUser(c.env.DB, payload);
-  await adoptAnonymous(c, userId);
-  await createSession(c, userId);
+  await signIn(c, payload);
   return c.redirect(safeNext(saved.next));
 });
 
@@ -126,13 +135,14 @@ auth.post("/logout", async (c) => {
   return c.json({ ok: true });
 });
 
+// Local E2E and staging only (E2E_MODE is never set in production).
+const testLoginEnabled = (env: Env, url: string) =>
+  env.E2E_MODE === "1" && (["localhost", "127.0.0.1"].includes(new URL(url).hostname) || env.ENV_NAME === "staging");
+
 // Local E2E only: emulates the Google callback without contacting Google.
 auth.get("/test-login", async (c) => {
-  const host = new URL(c.req.url).hostname;
-  if (c.env.E2E_MODE !== "1" || !(host === "localhost" || host === "127.0.0.1")) return c.notFound();
+  if (!testLoginEnabled(c.env, c.req.url)) return c.notFound();
   const email = c.req.query("email") ?? "tester@example.com";
-  const userId = await upsertUser(c.env.DB, { sub: `test-${email}`, email, name: "テスト ユーザー" });
-  await adoptAnonymous(c, userId);
-  await createSession(c, userId);
+  await signIn(c, { sub: `test-${email}`, email, name: "テスト ユーザー" });
   return c.redirect(safeNext(c.req.query("next")));
 });
