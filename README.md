@@ -3,7 +3,7 @@
 名古屋市内の事業所向けに、消防の届出・防火管理・消防用設備等・危険物などの相談へAIが答える、モバイルファーストのWebサービスです。[meher-inc/service-template](https://github.com/meher-inc/service-template)（東京の消防相談 [meher-inc/shobo-soudan](https://github.com/meher-inc/shobo-soudan) の UI と基盤）から作りました。
 
 - 白ベースの Liquid Glass、スプリングのアニメーション、全画面スケルトン
-- ログインなしで即相談、初回から24時間無料、その後は月額980円（税込）のサブスク（Stripe）
+- ログインなしで即相談。相談は無料（1人あたり日本時間の1日に20件まで。ほかに短時間の連続送信の制限と、ログインなしで同じ回線から始められる数の上限）
 - ログインは Google のみ
 - Cloudflare Workers・D1・Workers AI で動く
 - 実ブラウザの E2E（Chromium・WebKit、Pixel 7・iPhone 15・デスクトップ）でデザイン基準まで検査
@@ -29,8 +29,8 @@ Cloudflare Worker (Hono)
 ├─ Static Assets  … Vite でビルドした Preact SPA（dist/）
 ├─ D1             … users / sessions / conversations / messages / stripe_events
 ├─ Workers AI     … ストリーミング回答（モデルは wrangler.jsonc の AI_MODEL）
-└─ Rate Limiting  … 利用者ごとに 20回/分
-外部: Google OAuth 2.0（PKCE）/ Stripe Checkout・Customer Portal・Webhook
+└─ Rate Limiting  … 利用者ごとに 20回/分（D1 の user_daily_usage で1人1日20件まで）
+外部: Google OAuth 2.0（PKCE）/ Stripe Customer Portal・Webhook（以前の月額プランの解約とカード変更）
 ```
 
 ## 技術選定の理由
@@ -49,8 +49,8 @@ Cloudflare Worker (Hono)
 | サービスごとの値 | `src/config/service.ts` に集約、ビルド時に HTML・マニフェスト・アイコンへ反映 | 新しいサービスで触るファイルを最小にし、テストも同じ値で検査できる |
 | アイコン | SVG 1枚から `@resvg/resvg-js` で PNG を生成 | 色を theme から入れ替えるだけで、PWA に必要な各サイズがそろう |
 | 認証 | Google OAuth 2.0 + PKCE を自前実装 | Google だけなので認証 SaaS は要らない。セッションはランダムなトークンの SHA-256 だけを D1 に保存し、Cookie は HttpOnly / Secure / SameSite=Lax |
-| 決済 | Stripe Checkout + Customer Portal + Webhook | カード情報を自社で扱わない。解約とカード変更は Portal に任せる。SDK を使わず fetch で呼び、Webhook の署名は Web Crypto で検証。イベントIDで二重処理を防ぐ |
-| 無料期間 | 初回送信時刻 + 設定時間をサーバーで判定 | クライアントの時計に依存しない。期限後の API は 402 を返す |
+| 決済 | Stripe Customer Portal + Webhook（Checkout は新規登録の終了に合わせて停止） | カード情報を自社で扱わない。以前の月額プランの登録者の解約とカード変更は Portal に任せる。SDK を使わず fetch で呼び、Webhook の署名は Web Crypto で検証。イベントIDで二重処理を防ぐ。`/api/billing/checkout` は 410 `plan_discontinued` を返す |
+| 料金 | 相談は無料（2026-10-20 に無料期間と月額プランを廃止） | 弁護士ドットコムと同じく、相談の入口を無料にする。`users.trial_started_at` などの列は残すが、送信の可否の判定には使わない |
 | ログインなしの利用 | 初回送信時に匿名の利用者とセッション Cookie を発行 | 開いてすぐ相談できる。訪問しただけでは DB に行を作らない。Cookie を消しての繰り返し利用は、IP のハッシュ値ごとの開始数で抑える（IP そのものは保存しない） |
 | PWA | マニフェスト + Service Worker（オフライン案内だけ保存） | ホーム画面に追加できる。HTML にはログイン状態が入るので保存しない |
 | テスト | Playwright + node:test | 実ブラウザ（Chromium・WebKit）で、3つの端末サイズを自動操作する。Stripe は署名つき Webhook まで再現するローカルのモックで、Google は E2E 専用のログインで代替する。Cloudflare の認証情報があるときは本物の Workers AI も呼ぶ |
@@ -85,13 +85,12 @@ pnpm screenshots       # docs/screenshots を撮り直す
 npx wrangler secret put GOOGLE_CLIENT_ID
 npx wrangler secret put GOOGLE_CLIENT_SECRET
 npx wrangler secret put STRIPE_SECRET_KEY
-npx wrangler secret put STRIPE_PRICE_ID
 npx wrangler secret put STRIPE_WEBHOOK_SECRET
 ```
 
 - Google Cloud Console: OAuth クライアント（ウェブアプリケーション）の承認済みリダイレクト URI に `https://<host>/auth/callback` を登録
-- Stripe: `service.ts` の価格と同じ月額の Price（JPY・税込）を作る。Webhook の送信先は `https://<host>/api/stripe/webhook`、イベントは `checkout.session.completed` と `customer.subscription.created/updated/deleted`。Customer Portal の解約は「請求期間の終了時」
-- 秘密値が未設定の間は、ログインと決済のボタンが「準備中」の表示になります
+- Stripe: 新規の登録は受け付けないため Price は不要です。以前の登録者のために、Webhook の送信先 `https://<host>/api/stripe/webhook`（イベントは `checkout.session.completed` と `customer.subscription.created/updated/deleted`）と Customer Portal（解約は「請求期間の終了時」）を残します
+- 秘密値が未設定の間は、ログインのボタンが「準備中」の表示になります
 
 ## 独自ドメイン
 

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { AppEnv } from "./env";
 import { loadUser, publicMe } from "./session";
+import { jstDay } from "./caps";
 import { auth } from "./auth";
 import { billing, stripeWebhook } from "./billing";
 import { chat, conversations } from "./chat";
@@ -45,12 +46,35 @@ app.route("/api/conversations", conversations);
 app.route("/api/billing", billing);
 app.route("/api/stripe/webhook", stripeWebhook);
 
-// Local E2E only: move the trial start back so the paywall can be exercised.
+// Local E2E only: move the first consultation back past the former 24-hour free period,
+// to check that nothing is gated on it any more.
 app.post("/api/test/expire-trial", async (c) => {
   const user = c.get("user");
   if (c.env.E2E_MODE !== "1" || !isLocal(c.req.url) || !user) return c.notFound();
   await c.env.DB.prepare("UPDATE users SET trial_started_at = ? WHERE id = ?")
-    .bind(Date.now() - (SERVICE.trialHours + 1) * 60 * 60 * 1000, user.id)
+    .bind(Date.now() - 25 * 60 * 60 * 1000, user.id)
+    .run();
+  return c.json({ ok: true });
+});
+
+// Local E2E only: use up today's message limit for the current user.
+app.post("/api/test/fill-quota", async (c) => {
+  const user = c.get("user");
+  if (c.env.E2E_MODE !== "1" || !isLocal(c.req.url) || !user) return c.notFound();
+  await c.env.DB.prepare(
+    "INSERT INTO user_daily_usage (user_id, day, messages) VALUES (?1, ?2, ?3) ON CONFLICT(user_id, day) DO UPDATE SET messages = ?3",
+  )
+    .bind(user.id, jstDay(), Number(c.env.USER_DAILY_MESSAGE_LIMIT || 20))
+    .run();
+  return c.json({ ok: true });
+});
+
+// Local E2E only: mark the current user as an existing subscriber (from before new sign-ups ended).
+app.post("/api/test/subscribe", async (c) => {
+  const user = c.get("user");
+  if (c.env.E2E_MODE !== "1" || !isLocal(c.req.url) || !user) return c.notFound();
+  await c.env.DB.prepare("UPDATE users SET stripe_customer_id = ?, subscription_status = 'active' WHERE id = ?")
+    .bind(`cus_e2e_${user.id}`, user.id)
     .run();
   return c.json({ ok: true });
 });
@@ -82,7 +106,7 @@ function homeHead(origin: string) {
       applicationCategory: "BusinessApplication",
       operatingSystem: "Web",
       areaServed: { "@type": "AdministrativeArea", name: SERVICE.areaServed },
-      offers: { "@type": "Offer", price: SERVICE.price.amount, priceCurrency: "JPY", description: SERVICE.price.label },
+      offers: { "@type": "Offer", price: 0, priceCurrency: "JPY", description: "相談は無料" },
       publisher,
     },
   ];

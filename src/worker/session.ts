@@ -5,7 +5,6 @@ import { SERVICE } from "../config/service";
 
 const SESSION_COOKIE = "sid";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-export const TRIAL_MS = SERVICE.trialHours * 60 * 60 * 1000;
 const IP_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export function isHttps(c: Context<AppEnv>): boolean {
@@ -61,7 +60,7 @@ function clientIp(c: Context<AppEnv>): string {
   return c.req.header("cf-connecting-ip") ?? "unknown";
 }
 
-/** Creates an anonymous trial user with a session, or returns null when this IP has used up its trials. */
+/** Creates an anonymous user with a session, or returns null when this IP has started too many anonymous users today. */
 export async function createAnonymousUser(c: Context<AppEnv>): Promise<User | null> {
   const ipHash = await sha256(`${SERVICE.id}:${clientIp(c)}`);
   const since = Date.now() - IP_WINDOW_MS;
@@ -88,26 +87,24 @@ export async function destroySession(c: Context<AppEnv>): Promise<void> {
   deleteCookie(c, SESSION_COOKIE, { path: "/", secure: isHttps(c) });
 }
 
-export type AccessState = "trial" | "paid" | "expired";
+export type AccessState = "free" | "paid";
 
-/** No user yet means the trial has not started: anyone can send the first message. */
-export function accessOf(user: User | null, now = Date.now()) {
-  if (!user) return { state: "trial" as AccessState, trialEndsAt: null };
-  const paid = user.subscription_status === "active" || user.subscription_status === "trialing";
-  const trialEndsAt = user.trial_started_at ? user.trial_started_at + TRIAL_MS : null;
-  if (paid) return { state: "paid" as AccessState, trialEndsAt };
-  if (trialEndsAt === null || now < trialEndsAt) return { state: "trial" as AccessState, trialEndsAt };
-  return { state: "expired" as AccessState, trialEndsAt };
+/**
+ * 相談は無料（回数の制限は caps.ts の1日の上限、chat.ts のレート制限、匿名利用の回線ごとの上限）。無料期間は廃止したので、期限切れの状態はない。
+ * "paid" は以前に有料プランへ登録した利用者で、表示とお支払い管理の入口にだけ使う。
+ */
+export function accessOf(user: User | null): AccessState {
+  const paid = user?.subscription_status === "active" || user?.subscription_status === "trialing";
+  return paid ? "paid" : "free";
 }
 
 export function publicMe(user: User | null, env: Env) {
-  const access = accessOf(user);
   return {
     user: user && !user.is_anonymous ? { email: user.email, name: user.name, picture: user.picture } : null,
     hasSession: Boolean(user),
-    access: access.state,
-    trialEndsAt: access.trialEndsAt,
+    access: accessOf(user),
+    /** 以前に有料プランへ登録した利用者だけ、解約とカード変更（Customer Portal）の入口を出す */
+    billingPortal: Boolean(user?.stripe_customer_id) && Boolean(env.STRIPE_SECRET_KEY),
     loginAvailable: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) || env.E2E_MODE === "1",
-    billingAvailable: Boolean(env.STRIPE_SECRET_KEY),
   };
 }

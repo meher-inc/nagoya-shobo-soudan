@@ -6,7 +6,6 @@ import {
   loadConversation,
   logout,
   openPortal,
-  startCheckout,
   streamChat,
   type ChatMessage,
   type ConversationSummary,
@@ -17,14 +16,7 @@ import { renderMarkdown } from "./markdown";
 import { Sheet } from "./components/Sheet";
 import { BackIcon, ChatIcon, GoogleIcon, MenuIcon, PlusIcon, SendIcon, StopIcon, TrashIcon } from "./components/Icons";
 
-type SheetKind = "login" | "paywall" | "menu" | null;
-
-function remaining(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 60000));
-  const h = Math.floor(total / 60);
-  const m = total % 60;
-  return h > 0 ? `${h}時間` : `${m}分`;
-}
+type SheetKind = "login" | "menu" | null;
 
 function withTransition(fn: () => void) {
   const doc = document as Document & { startViewTransition?: (cb: () => void) => void };
@@ -55,8 +47,6 @@ export function App({ initialMe }: { initialMe: Me }) {
   const [toast, setToast] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
   const [compact, setCompact] = useState(false);
-  const [now, setNow] = useState(Date.now());
-  const [checkoutBusy, setCheckoutBusy] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const thread = useRef<HTMLDivElement>(null);
   const abort = useRef<AbortController | null>(null);
@@ -64,16 +54,12 @@ export function App({ initialMe }: { initialMe: Me }) {
 
   useEffect(() => {
     textarea.current?.focus();
-    const t = setInterval(() => setNow(Date.now()), 30000);
     const params = new URLSearchParams(location.search);
     if (params.get("login") === "failed") flash("ログインできませんでした。もう一度お試しください。");
-    if (params.get("billing") === "success") flash("お支払いが完了しました。");
-    if (params.get("resume") === "paywall" && me.access === "expired") setSheet("paywall");
     // Questions typed on a topic page arrive as ?q= and are sent right away.
     const q = params.get("q")?.trim();
     if (q) void send(q.slice(0, 2000));
     if (params.toString()) history_replace();
-    return () => clearInterval(t);
   }, []);
 
   useLayoutEffect(() => {
@@ -105,10 +91,6 @@ export function App({ initialMe }: { initialMe: Me }) {
   async function send(text: string) {
     const message = text.trim();
     if (!message || streaming) return;
-    if (me.access === "expired") {
-      setSheet("paywall");
-      return;
-    }
     setInput("");
     const userMsg: ChatMessage = { id: `u-${Date.now()}`, role: "user", content: message };
     const botId = `a-${Date.now()}`;
@@ -124,18 +106,18 @@ export function App({ initialMe }: { initialMe: Me }) {
         ctrl.signal,
       );
       if (id) setConversationId(id);
-      if (!me.trialEndsAt) void refreshMe();
+      // The first message creates an anonymous session; reflect it so the menu shows history.
+      if (!me.hasSession) void refreshMe();
     } catch (err) {
       if ((err as Error).name === "AbortError") {
         setMessages((m) => m.map((x) => (x.id === botId && !x.content ? { ...x, content: "（停止しました）" } : x)));
       } else {
         setMessages((m) => m.filter((x) => x.id !== botId && x.id !== userMsg.id));
         setInput(message);
-        if (err instanceof ApiError && err.status === 402) {
-          await refreshMe();
-          setSheet("paywall");
-        } else if (err instanceof ApiError && err.code === "trial_limit") {
+        if (err instanceof ApiError && err.code === "trial_limit") {
           setSheet("login");
+        } else if (err instanceof ApiError && err.code === "user_limit") {
+          flash("本日の相談回数の上限に達しました。明日またご利用ください。緊急時は119番へ。");
         } else if (err instanceof ApiError && err.status === 429) {
           flash("送信が続いています。1分ほど待ってからもう一度お試しください。");
         } else {
@@ -206,16 +188,6 @@ export function App({ initialMe }: { initialMe: Me }) {
     if (id === conversationId) newConversation();
   }
 
-  async function checkout() {
-    setCheckoutBusy(true);
-    try {
-      location.href = await startCheckout();
-    } catch {
-      setCheckoutBusy(false);
-      flash("決済画面を開けませんでした。時間をおいてもう一度お試しください。");
-    }
-  }
-
   async function portal() {
     try {
       location.href = await openPortal();
@@ -226,7 +198,7 @@ export function App({ initialMe }: { initialMe: Me }) {
 
   async function signOut() {
     await logout();
-    setMe({ ...me, user: null, hasSession: false, access: "trial", trialEndsAt: null });
+    setMe({ ...me, user: null, hasSession: false, access: "free", billingPortal: false });
     setMessages([]);
     setConversationId(null);
     setHistory(null);
@@ -241,7 +213,6 @@ export function App({ initialMe }: { initialMe: Me }) {
     el.style.setProperty("--my", `${e.clientY - r.top}px`);
   }
 
-  const trialLeft = me.access === "trial" && me.trialEndsAt ? me.trialEndsAt - now : null;
   const lastBot = messages[messages.length - 1];
   const html = useMemo(() => new Map<string, string>(), []);
   const md = (m: ChatMessage) => {
@@ -270,11 +241,6 @@ export function App({ initialMe }: { initialMe: Me }) {
           {SERVICE.shortName}
         </div>
         <div class="right">
-          {trialLeft !== null && trialLeft > 0 && (
-            <span class="badge" data-testid="trial-badge">
-              無料 残り{remaining(trialLeft)}
-            </span>
-          )}
           {me.user ? (
             <button class="icon-btn" aria-label="アカウント" onClick={openMenu}>
               {me.user.picture ? (
@@ -390,7 +356,7 @@ export function App({ initialMe }: { initialMe: Me }) {
         <Sheet label="ログイン" onClose={() => setSheet(null)} testId="login-sheet">
           <div class="stagger">
             <h2>Googleでログインして相談する</h2>
-            <p>この回線からのログインなしの無料利用は上限に達しました。ログインすると続けて相談できます。</p>
+            <p>この回線からのログインなしの利用は上限に達しました。ログインすると続けて相談できます。</p>
             <button
               class="btn btn-google rp"
               data-testid="google-login"
@@ -405,53 +371,7 @@ export function App({ initialMe }: { initialMe: Me }) {
             </button>
             {!me.loginAvailable && <p class="terms">ログイン機能は現在準備中です。</p>}
             <p class="terms">
-              初回の相談から{SERVICE.trialHours}時間は無料です。その後は{SERVICE.price.label}です。<a href="/legal/terms">利用規約</a>と
-              <a href="/legal/privacy">プライバシーポリシー</a>をご確認ください。
-            </p>
-          </div>
-        </Sheet>
-      )}
-
-      {sheet === "paywall" && (
-        <Sheet label="プラン" onClose={() => setSheet(null)} testId="paywall-sheet">
-          <div class="stagger">
-            <h2>無料期間が終了しました</h2>
-            <p>相談を続けるには月額プランへの登録が必要です。</p>
-            <div class="price">
-              {SERVICE.price.amount.toLocaleString("ja-JP")}円<small>（税込）／月</small>
-            </div>
-            <ul style="margin:10px 0 18px;padding-left:1.2em;color:var(--ink-2);font-size:14px">
-              <li>相談回数の上限なし（短時間の連続送信は制限があります）</li>
-              <li>相談履歴の保存</li>
-              <li>いつでも解約できます。解約後も現在の請求期間の終了まで利用できます</li>
-            </ul>
-            {me.user ? (
-              <>
-                <button class="btn btn-primary rp" data-testid="checkout-button" disabled={!me.billingAvailable || checkoutBusy} onClick={(e) => { addRipple(e); void checkout(); }}>
-                  {checkoutBusy ? "決済画面を開いています…" : `${SERVICE.price.label.replace("（税込）", "")}で続ける`}
-                </button>
-                {!me.billingAvailable && <p class="terms">お支払い機能は現在準備中です。</p>}
-              </>
-            ) : (
-              <>
-                <button
-                  class="btn btn-google rp"
-                  data-testid="paywall-login"
-                  disabled={!me.loginAvailable}
-                  onClick={(e) => {
-                    addRipple(e);
-                    location.href = `/auth/google?next=${encodeURIComponent("/?resume=paywall")}`;
-                  }}
-                >
-                  <GoogleIcon />
-                  Googleでログインして続ける
-                </button>
-                <p class="terms">登録にはGoogleでのログインが必要です。これまでの相談履歴は引き継がれます。</p>
-                {!me.loginAvailable && <p class="terms">ログイン機能は現在準備中です。</p>}
-              </>
-            )}
-            <p class="terms">
-              決済はStripeで行います。<a href="/legal/tokushoho">特定商取引法に基づく表記</a>
+              相談は無料です。<a href="/legal/terms">利用規約</a>と<a href="/legal/privacy">プライバシーポリシー</a>をご確認ください。
             </p>
           </div>
         </Sheet>
@@ -499,13 +419,9 @@ export function App({ initialMe }: { initialMe: Me }) {
                   <div class="row" style="cursor:default">
                     <span class="t">{me.user.email}</span>
                   </div>
-                  {me.access === "paid" ? (
-                    <button class="row" onClick={portal}>
+                  {me.billingPortal && (
+                    <button class="row" data-testid="billing-portal" onClick={portal}>
                       <span class="t">お支払い・解約の管理</span>
-                    </button>
-                  ) : (
-                    <button class="row" data-testid="plan-row" onClick={() => setSheet("paywall")}>
-                      <span class="t">{me.access === "expired" ? "月額プランに登録" : `プラン（${SERVICE.price.label}）`}</span>
                     </button>
                   )}
                   <button class="row" data-testid="logout" onClick={signOut}>

@@ -1,12 +1,13 @@
-export type Access = "trial" | "paid" | "expired";
+/** 相談は無料。"paid" は以前に月額プランへ登録した利用者 */
+export type Access = "free" | "paid";
 
 export interface Me {
   user: { email: string; name: string | null; picture: string | null } | null;
   hasSession: boolean;
   access: Access;
-  trialEndsAt: number | null;
+  /** 以前に月額プランへ登録した利用者だけ true。解約とカード変更の入口を出す */
+  billingPortal: boolean;
   loginAvailable: boolean;
-  billingAvailable: boolean;
 }
 
 export interface ChatMessage {
@@ -84,13 +85,6 @@ export async function loadConversation(id: string): Promise<ChatMessage[]> {
 
 export async function deleteConversation(id: string): Promise<void> {
   await fetch(`/api/conversations/${id}`, { method: "DELETE" });
-}
-
-export async function startCheckout(): Promise<string> {
-  const res = await fetch("/api/billing/checkout", { method: "POST" });
-  const body = (await res.json()) as { url?: string; error?: string };
-  if (!res.ok || !body.url) throw new ApiError(res.status, body.error ?? "checkout_failed");
-  return body.url;
 }
 
 export async function openPortal(): Promise<string> {

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { AppEnv, Env } from "./env";
-import { accessOf, createAnonymousUser } from "./session";
+import { createAnonymousUser } from "./session";
+import { takeUserQuota } from "./caps";
 import { ASSISTANT_FALLBACK, SYSTEM_PROMPT } from "../config/prompt";
 import { runRules, rulesNote } from "../rules/extract.ts";
 
@@ -136,13 +137,14 @@ chat.post("/", async (c) => {
   if (!message) return c.json({ error: "empty" }, 400);
   if (message.length > MAX_INPUT) return c.json({ error: "too_long" }, 400);
 
-  // First message without a session starts an anonymous 24-hour trial.
+  // 相談は無料。セッションのない最初の送信で匿名の利用者を作る（同じ回線から24時間に作れる数に上限あり）。
+  // 1人あたりの送信は日本時間の1日ごとに USER_DAILY_MESSAGE_LIMIT 件まで（caps.ts）。
   const user = c.get("user") ?? (await createAnonymousUser(c));
   if (!user) return c.json({ error: "trial_limit" }, 429);
-  if (accessOf(user).state === "expired") return c.json({ error: "payment_required" }, 402);
 
   const { success } = await c.env.CHAT_LIMITER.limit({ key: user.id });
   if (!success) return c.json({ error: "rate_limited" }, 429);
+  if (!(await takeUserQuota(c.env, user.id))) return c.json({ error: "user_limit" }, 429);
 
   const db = c.env.DB;
   const now = Date.now();
@@ -191,11 +193,6 @@ chat.post("/", async (c) => {
       console.error("ai_error", err);
       return c.json({ error: "ai_unavailable", conversationId: convId }, 503);
     }
-  }
-
-  // The free 24 hours start with the first answer actually being generated.
-  if (!user.trial_started_at) {
-    await db.prepare("UPDATE users SET trial_started_at = ? WHERE id = ? AND trial_started_at IS NULL").bind(now, user.id).run();
   }
 
   let resolveSaved: () => void;

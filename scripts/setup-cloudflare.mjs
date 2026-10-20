@@ -51,5 +51,5 @@ console.log(`wrangler.jsonc を更新しました
 
 次にやること（README の「新しいサービスを公開する」）
   1. pnpm run db:migrate:remote
-  2. wrangler secret put で GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / STRIPE_SECRET_KEY / STRIPE_PRICE_ID / STRIPE_WEBHOOK_SECRET
+  2. wrangler secret put で GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET
   3. pnpm run deploy`);

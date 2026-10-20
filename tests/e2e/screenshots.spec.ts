@@ -22,12 +22,4 @@ test("capture @screenshots", async ({ page }) => {
   await page.getByTestId("menu-button").click();
   await page.waitForTimeout(800);
   await shot("4-menu");
-  await page.keyboard.press("Escape");
-  await page.request.post("/api/test/expire-trial");
-  await page.reload();
-  await page.getByTestId("composer-input").fill("続けて質問");
-  await page.getByTestId("send-button").click();
-  await expect(page.getByTestId("paywall-sheet")).toBeVisible();
-  await page.waitForTimeout(800);
-  await shot("5-paywall");
 });

@@ -22,7 +22,8 @@ test("service config follows the UI rules in CLAUDE.md", () => {
   assert.equal(SERVICE.suggestions.length, 4, "four suggestions");
   for (const s of SERVICE.suggestions) assert.ok([...s].length <= 12, `suggestion too long: ${s}`);
   assert.ok(!SERVICE.notice.includes("\n"), "notice is one line");
-  assert.ok(SERVICE.price.label.includes(`${SERVICE.price.amount.toLocaleString("ja-JP")}円`), "price label matches amount");
+  // 相談は無料。無料期間・月額料金の設定は廃止した（再び足すときは CLAUDE.md の 8 と利用規約を合わせて直す）
+  assert.ok(!("price" in SERVICE) && !("trialHours" in SERVICE), "no price or free-period settings");
   for (const c of [SERVICE.theme.accent, SERVICE.theme.accent2, ...SERVICE.theme.ambient]) assert.match(c, /^#[0-9a-f]{6}$/i);
 });
 

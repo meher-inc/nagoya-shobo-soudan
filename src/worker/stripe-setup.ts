@@ -2,13 +2,11 @@ import type { Env } from "./env";
 import { SERVICE } from "../config/service";
 
 /**
- * Stripe の Price と Webhook を、サービスが自分で用意する。
- * 新しいサービスで Stripe の画面を開いて Price や Webhook を作り、その ID や署名用の秘密値を
- * コピーする作業をなくすため。STRIPE_PRICE_ID / STRIPE_WEBHOOK_SECRET が設定されていればそれを使う。
+ * Stripe の Webhook を、サービスが自分で用意する。STRIPE_WEBHOOK_SECRET が設定されていればそれを使う。
+ * 月額プランの新規登録は終了したため、Price の自動作成は削除した。ensureWebhook は、
+ * 今後の有料プランで Checkout を再開するときに、決済の直前に呼ぶ。
  */
 
-/** 価格を変えたら別の Price になるよう、金額をキーに含める */
-export const PRICE_LOOKUP_KEY = `${SERVICE.id}-monthly-${SERVICE.price.amount}`;
 export const WEBHOOK_EVENTS = [
   "checkout.session.completed",
   "customer.subscription.created",
@@ -29,31 +27,6 @@ export async function stripeApi(env: Env, method: "GET" | "POST" | "DELETE", pat
   const body = (await res.json()) as Record<string, unknown>;
   if (!res.ok) throw new Error(`Stripe ${method} ${path.split("?")[0]} ${res.status}`);
   return body;
-}
-
-let cachedPrice: string | null = null;
-
-export async function priceId(env: Env): Promise<string> {
-  if (env.STRIPE_PRICE_ID) return env.STRIPE_PRICE_ID;
-  if (cachedPrice) return cachedPrice;
-  const found = (await stripeApi(env, "GET", `prices?active=true&limit=1&lookup_keys[]=${encodeURIComponent(PRICE_LOOKUP_KEY)}`)) as {
-    data?: { id: string }[];
-  };
-  let id = found.data?.[0]?.id;
-  if (!id) {
-    const created = await stripeApi(env, "POST", "prices", {
-      currency: "jpy",
-      unit_amount: String(SERVICE.price.amount),
-      "recurring[interval]": "month",
-      tax_behavior: "inclusive",
-      lookup_key: PRICE_LOOKUP_KEY,
-      "product_data[name]": SERVICE.name,
-      "metadata[service]": SERVICE.id,
-    });
-    id = created.id as string;
-  }
-  cachedPrice = id;
-  return id;
 }
 
 /** 署名の検証に使う秘密値。独自ドメインへの切り替え直後は新旧2つの送信先があり得るので、すべて返す */
