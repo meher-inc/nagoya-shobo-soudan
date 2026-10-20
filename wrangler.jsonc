@@ -29,6 +29,12 @@
     }
   ],
   "ai": { "binding": "AI", "remote": true },
+  // Google と Stripe の鍵はアカウント共通の Secrets Store（MeHer の全サービスで共通）から読む。src/worker/secrets.ts
+  "secrets_store_secrets": [
+    { "binding": "SHARED_GOOGLE_CLIENT_ID", "store_id": "b0f7d791ae1c4110ada373a543bb668c", "secret_name": "GOOGLE_CLIENT_ID" },
+    { "binding": "SHARED_GOOGLE_CLIENT_SECRET", "store_id": "b0f7d791ae1c4110ada373a543bb668c", "secret_name": "GOOGLE_CLIENT_SECRET" },
+    { "binding": "SHARED_STRIPE_SECRET_KEY", "store_id": "b0f7d791ae1c4110ada373a543bb668c", "secret_name": "STRIPE_SECRET_KEY" }
+  ],
   "ratelimits": [
     {
       "name": "CHAT_LIMITER",
