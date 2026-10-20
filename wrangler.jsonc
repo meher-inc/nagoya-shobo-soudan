@@ -1,0 +1,51 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // 差し替え: src/config/service.ts の id と同じ値
+  "name": "nagoya-shobo-soudan",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  // Tokyo fire consultation measured at most 184 ms CPU per streamed answer.
+  "limits": { "cpu_ms": 500 },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/", "/index.html", "/api/*", "/auth/*", "/legal/*", "/robots.txt", "/sitemap.xml"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      // 差し替え: `npx wrangler d1 create <id>` の出力（database_name と database_id）
+      "database_name": "nagoya-shobo-soudan",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "ai": { "binding": "AI", "remote": true },
+  "ratelimits": [
+    {
+      "name": "CHAT_LIMITER",
+      // 差し替え: アカウント内でサービスごとに別の整数（既存: 4101 = 東京の消防相談）
+      "namespace_id": "6761",
+      "simple": { "limit": 20, "period": 60 }
+    }
+  ],
+  "vars": {
+    // Workers AI のモデル。選定理由は README の「技術選定の理由」
+    "AI_MODEL": "@cf/google/gemma-4-26b-a4b-it",
+    // 差し替え: 独自ドメインを接続したら https://<host> にする
+    "CANONICAL_ORIGIN": "https://nagoya-shobo-soudan.shun-maruoka.workers.dev",
+    "STRIPE_API_BASE": "https://api.stripe.com"
+  },
+  // Local tests without Cloudflare credentials: same bindings minus Workers AI (answers come from AI_MOCK).
+  // Bindings are not inherited by environments, so D1 and the rate limiter are repeated here.
+  "env": {
+    "mock": {
+      "d1_databases": [{ "binding": "DB", "database_name": "nagoya-shobo-soudan", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }],
+      "ratelimits": [{ "name": "CHAT_LIMITER", "namespace_id": "6761", "simple": { "limit": 20, "period": 60 } }],
+      "vars": { "AI_MODEL": "mock", "CANONICAL_ORIGIN": "http://localhost:8787", "STRIPE_API_BASE": "https://api.stripe.com" }
+    }
+  }
+}

@@ -1,0 +1,98 @@
+# 名古屋市 消防相談AI
+
+名古屋市内の事業所向けに、消防の届出・防火管理・消防用設備等・危険物などの相談へAIが答える、モバイルファーストのWebサービスです。[meher-inc/service-template](https://github.com/meher-inc/service-template)（東京の消防相談 [meher-inc/shobo-soudan](https://github.com/meher-inc/shobo-soudan) の UI と基盤）から作りました。
+
+- 白ベースの Liquid Glass、スプリングのアニメーション、全画面スケルトン
+- ログインなしで即相談、初回から24時間無料、その後は月額980円（税込）のサブスク（Stripe）
+- ログインは Google のみ
+- Cloudflare Workers・D1・Workers AI で動く
+- 実ブラウザの E2E（Chromium・WebKit、Pixel 7・iPhone 15・デスクトップ）でデザイン基準まで検査
+
+守るべき基準は [CLAUDE.md](CLAUDE.md)、見た目の数値は [docs/DESIGN.md](docs/DESIGN.md) にあります。
+
+## 名古屋版で差し替えた内容
+
+| ファイル | 内容 |
+|---|---|
+| `src/config/service.ts` | 名前、質問の候補、注意書き、色（accent `#c2410c`、白背景でのコントラスト比 5.2）、対象地域 |
+| `src/config/prompt.ts` | 名古屋市消防局の公式ページで確認した事実だけを、出典URLと確認日つきで記載（提出先の区分、電子申請、防火対象物使用開始届＝火災予防条例第66条 など） |
+| `src/config/stations.ts` | 16消防署の所在地・電話番号と出典URL。プロンプトの確認先に使う |
+| `src/assets/icon.svg` | 吹き出しに炎のアイコン |
+| `wrangler.jsonc` | Worker 名・D1 名・レート制限の namespace（`setup-cloudflare.mjs` で生成） |
+
+技術選定はテンプレートから変えていません（下の表）。名古屋市の情報は、法令や窓口が変わったら `prompt.ts` と `stations.ts` を一次情報で確認し直して更新します。
+
+## 構成
+
+```
+Cloudflare Worker (Hono)
+├─ Static Assets  … Vite でビルドした Preact SPA（dist/）
+├─ D1             … users / sessions / conversations / messages / stripe_events
+├─ Workers AI     … ストリーミング回答（モデルは wrangler.jsonc の AI_MODEL）
+└─ Rate Limiting  … 利用者ごとに 20回/分
+外部: Google OAuth 2.0（PKCE）/ Stripe Checkout・Customer Portal・Webhook
+```
+
+## 技術選定の理由
+
+| 対象 | 採用 | 理由 |
+|---|---|---|
+| 実行基盤 | Cloudflare Workers + Static Assets | 画面と API を1つの Worker で配信するので、デプロイが1回で済み CORS も要らない。HTML を返すときにログイン状態を埋め込むため、最初の表示で追加の通信が発生しない |
+| API | Hono | Workers 向けに作られた軽いルーター。Cookie・ルーティング・型つきの Bindings を標準で扱え、依存が小さい |
+| DB | D1 | Workers から同じネットワーク内で読める。利用者・セッション・相談履歴のような小さな関係データに向く。外部キーの CASCADE で履歴の削除が単純になる |
+| AI | Workers AI `gemma-4-26b-a4b-it`（思考モード無効） | Cloudflare の中で完結し、鍵の管理が要らない。東京の消防相談で実測（2026-10-19）し、最初の文字まで0.6〜0.7秒、全体約6秒で、比較した llama-4-scout（全体8〜12秒）より速く、指示した書式を守った |
+| AI の止まり対策 | 開始失敗は1回再試行、25秒無応答で打ち切り | Workers AI の上流切断やストリームの停止で、画面が「停止」のまま固まるのを防ぐ |
+| 画面 | Preact + Vite | React 互換の API で約15KB（gzip）。モバイル回線でも最初の表示が速い。Vite はビルドが速く、ハッシュつきのファイルを出力する |
+| 見た目 | 自作 CSS（Liquid Glass） | `backdrop-filter`、多層の内側の影、ポインタ追従の光でガラスを表現。UI ライブラリを入れず CSS は約4KB（gzip） |
+| アニメーション | CSS + View Transitions API | 追加のライブラリなしで、スプリング、メッセージの出現、シート、リップル、カーソル、スケルトンのクロスフェードを実装。`prefers-reduced-motion` で止める |
+| スケルトン | index.html に直接書く | JS の読み込み前の最初の描画から全画面に出せる |
+| サービスごとの値 | `src/config/service.ts` に集約、ビルド時に HTML・マニフェスト・アイコンへ反映 | 新しいサービスで触るファイルを最小にし、テストも同じ値で検査できる |
+| アイコン | SVG 1枚から `@resvg/resvg-js` で PNG を生成 | 色を theme から入れ替えるだけで、PWA に必要な各サイズがそろう |
+| 認証 | Google OAuth 2.0 + PKCE を自前実装 | Google だけなので認証 SaaS は要らない。セッションはランダムなトークンの SHA-256 だけを D1 に保存し、Cookie は HttpOnly / Secure / SameSite=Lax |
+| 決済 | Stripe Checkout + Customer Portal + Webhook | カード情報を自社で扱わない。解約とカード変更は Portal に任せる。SDK を使わず fetch で呼び、Webhook の署名は Web Crypto で検証。イベントIDで二重処理を防ぐ |
+| 無料期間 | 初回送信時刻 + 設定時間をサーバーで判定 | クライアントの時計に依存しない。期限後の API は 402 を返す |
+| ログインなしの利用 | 初回送信時に匿名の利用者とセッション Cookie を発行 | 開いてすぐ相談できる。訪問しただけでは DB に行を作らない。Cookie を消しての繰り返し利用は、IP のハッシュ値ごとの開始数で抑える（IP そのものは保存しない） |
+| PWA | マニフェスト + Service Worker（オフライン案内だけ保存） | ホーム画面に追加できる。HTML にはログイン状態が入るので保存しない |
+| テスト | Playwright + node:test | 実ブラウザ（Chromium・WebKit）で、3つの端末サイズを自動操作する。Stripe は署名つき Webhook まで再現するローカルのモックで、Google は E2E 専用のログインで代替する。Cloudflare の認証情報があるときは本物の Workers AI も呼ぶ |
+| パッケージ管理 | pnpm | 既存のリポジトリと同じ |
+
+## ローカル開発
+
+```bash
+pnpm install
+pnpm run db:migrate:local
+cp .dev.vars.example .dev.vars   # 値を設定
+pnpm dev
+```
+
+Workers AI はローカルでも Cloudflare に接続して動くため、`wrangler login` が必要です。ログインしない場合は `pnpm build && npx wrangler dev --env mock --var AI_MOCK:1` で、決まった文面を返すモックで画面を確認できます。
+
+## テスト
+
+```bash
+pnpm test              # 型チェック・単体テスト・E2E
+pnpm screenshots       # docs/screenshots を撮り直す
+```
+
+- `playwright.config.ts` が Stripe のモックと `wrangler dev`（`E2E_MODE=1`）を起動します。`/auth/test-login` と `/api/test/*` は `E2E_MODE=1` かつ localhost のときだけ有効です。
+- `CLOUDFLARE_API_TOKEN` がないときは Workers AI を使わない `mock` 環境で動き、`@real-ai` のテストは飛ばします。
+- Playwright のブラウザを取得できない環境では `CHROMIUM_PATH=<chromium の実行ファイル>` を付けると Chromium だけで実行します（WebKit は GitHub Actions で確認）。
+- `BASE_URL=https://...` を付けると、ローカル専用の機能を使わないテストを本番に対して実行します。
+
+## 本番の設定（Secrets）
+
+```bash
+npx wrangler secret put GOOGLE_CLIENT_ID
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+npx wrangler secret put STRIPE_SECRET_KEY
+npx wrangler secret put STRIPE_PRICE_ID
+npx wrangler secret put STRIPE_WEBHOOK_SECRET
+```
+
+- Google Cloud Console: OAuth クライアント（ウェブアプリケーション）の承認済みリダイレクト URI に `https://<host>/auth/callback` を登録
+- Stripe: `service.ts` の価格と同じ月額の Price（JPY・税込）を作る。Webhook の送信先は `https://<host>/api/stripe/webhook`、イベントは `checkout.session.completed` と `customer.subscription.created/updated/deleted`。Customer Portal の解約は「請求期間の終了時」
+- 秘密値が未設定の間は、ログインと決済のボタンが「準備中」の表示になります
+
+## 独自ドメイン
+
+nagoya.todokede.jp などのサブドメインにする場合は、京都版と同じ Cloudflare for SaaS のゾーンにカスタムホスト名を追加し、DNS に CNAME と TXT を登録します（手順は京都版の `docs/domain-setup.md`）。接続後に `wrangler.jsonc` の `CANONICAL_ORIGIN` を `https://<host>` に変えると、workers.dev のページは 301 で転送されます。

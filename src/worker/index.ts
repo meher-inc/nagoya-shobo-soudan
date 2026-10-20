@@ -1,0 +1,107 @@
+import { Hono } from "hono";
+import type { AppEnv } from "./env";
+import { loadUser, publicMe } from "./session";
+import { auth } from "./auth";
+import { billing, stripeWebhook } from "./billing";
+import { chat, conversations } from "./chat";
+import { SERVICE } from "../config/service";
+
+const app = new Hono<AppEnv>();
+
+const isLocal = (url: string) => ["localhost", "127.0.0.1"].includes(new URL(url).hostname);
+
+// Once the custom domain is live, workers.dev pages move to it permanently (API and OAuth stay where they are).
+app.use("*", async (c, next) => {
+  const canonical = c.env.CANONICAL_ORIGIN;
+  const url = new URL(c.req.url);
+  if (canonical && c.req.method === "GET" && url.hostname.endsWith(".workers.dev") && url.origin !== canonical && !/^\/(api|auth)\//.test(url.pathname)) {
+    return c.redirect(`${canonical}${url.pathname}${url.search}`, 301);
+  }
+  await next();
+});
+
+app.use("*", async (c, next) => {
+  c.set("user", c.req.path.startsWith("/api/stripe/") ? null : await loadUser(c));
+  await next();
+  c.header("x-content-type-options", "nosniff");
+  c.header("referrer-policy", "strict-origin-when-cross-origin");
+  c.header("x-frame-options", "DENY");
+});
+
+// Reject cross-site state-changing API calls (cookie auth + SameSite=Lax is the first line).
+app.use("/api/*", async (c, next) => {
+  if (c.req.method !== "GET" && !c.req.path.startsWith("/api/stripe/")) {
+    const origin = c.req.header("origin");
+    if (origin && origin !== new URL(c.req.url).origin) return c.json({ error: "forbidden" }, 403);
+  }
+  await next();
+});
+
+app.route("/auth", auth);
+app.get("/api/me", (c) => c.json(publicMe(c.get("user"), c.env)));
+app.route("/api/chat", chat);
+app.route("/api/conversations", conversations);
+app.route("/api/billing", billing);
+app.route("/api/stripe/webhook", stripeWebhook);
+
+// Local E2E only: move the trial start back so the paywall can be exercised.
+app.post("/api/test/expire-trial", async (c) => {
+  const user = c.get("user");
+  if (c.env.E2E_MODE !== "1" || !isLocal(c.req.url) || !user) return c.notFound();
+  await c.env.DB.prepare("UPDATE users SET trial_started_at = ? WHERE id = ?")
+    .bind(Date.now() - (SERVICE.trialHours + 1) * 60 * 60 * 1000, user.id)
+    .run();
+  return c.json({ ok: true });
+});
+
+app.all("/api/*", (c) => c.json({ error: "not_found" }, 404));
+
+app.get("/robots.txt", (c) => {
+  const origin = c.env.CANONICAL_ORIGIN ?? new URL(c.req.url).origin;
+  return c.text(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /auth/\n\nSitemap: ${origin}/sitemap.xml\n`);
+});
+
+app.get("/sitemap.xml", (c) => {
+  const origin = c.env.CANONICAL_ORIGIN ?? new URL(c.req.url).origin;
+  const urls = ["/", "/legal/terms", "/legal/privacy", "/legal/tokushoho"].map((p) => `<url><loc>${origin}${p}</loc></url>`).join("");
+  return c.body(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`, 200, {
+    "content-type": "application/xml; charset=utf-8",
+  });
+});
+
+function homeHead(origin: string) {
+  const publisher = { "@type": "Organization", name: SERVICE.seller.name, url: "https://meher-inc.co.jp/" };
+  const jsonLd = [
+    { "@context": "https://schema.org", "@type": "WebSite", name: SERVICE.name, url: `${origin}/`, inLanguage: "ja", publisher },
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      name: SERVICE.name,
+      url: `${origin}/`,
+      applicationCategory: "BusinessApplication",
+      operatingSystem: "Web",
+      areaServed: { "@type": "AdministrativeArea", name: SERVICE.areaServed },
+      offers: { "@type": "Offer", price: SERVICE.price.amount, priceCurrency: "JPY", description: SERVICE.price.label },
+      publisher,
+    },
+  ];
+  return [
+    `<link rel="canonical" href="${origin}/">`,
+    `<meta property="og:type" content="website"><meta property="og:url" content="${origin}/"><meta property="og:site_name" content="${SERVICE.name}"><meta property="og:locale" content="ja_JP">`,
+    ...jsonLd.map((j) => `<script type="application/ld+json">${JSON.stringify(j).replace(/</g, "\\u003c")}</script>`),
+  ].join("\n");
+}
+
+// Inline the session state into the shell so the first paint needs no extra round trip.
+app.get("*", async (c) => {
+  const asset = await c.env.ASSETS.fetch(new Request(new URL("/", c.req.url)));
+  const html = await asset.text();
+  const me = JSON.stringify(publicMe(c.get("user"), c.env)).replace(/</g, "\\u003c");
+  const origin = c.env.CANONICAL_ORIGIN ?? new URL(c.req.url).origin;
+  const head = c.req.path === "/" ? homeHead(origin) : "";
+  return c.html(html.replace("<!--ME-->", `${head}<script>window.__ME__=${me}</script>`), 200, {
+    "cache-control": "no-store",
+  });
+});
+
+export default { fetch: app.fetch } satisfies ExportedHandler<AppEnv["Bindings"]>;

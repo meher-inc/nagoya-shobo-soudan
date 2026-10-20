@@ -1,0 +1,35 @@
+export interface Env {
+  DB: D1Database;
+  AI: Ai;
+  ASSETS: Fetcher;
+  CHAT_LIMITER: RateLimit;
+  AI_MODEL: string;
+  /** e.g. https://example.todokede.jp. Pages use it for canonical URLs; workers.dev redirects to it. */
+  CANONICAL_ORIGIN?: string;
+  STRIPE_API_BASE: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_PRICE_ID?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  /** Local E2E only. Never set in production. */
+  E2E_MODE?: string;
+  AI_MOCK?: string;
+}
+
+export interface User {
+  id: string;
+  google_sub: string;
+  email: string;
+  name: string | null;
+  picture: string | null;
+  trial_started_at: number | null;
+  stripe_customer_id: string | null;
+  subscription_status: string | null;
+  current_period_end: number | null;
+  is_anonymous: number;
+  ip_hash: string | null;
+  created_at: number;
+}
+
+export type AppEnv = { Bindings: Env; Variables: { user: User | null } };

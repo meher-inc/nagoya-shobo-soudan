@@ -1,0 +1,52 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { renderMarkdown } from "../../src/client/markdown.ts";
+import { SERVICE } from "../../src/config/service.ts";
+
+test("markdown escapes HTML before formatting", () => {
+  const html = renderMarkdown('<script>alert(1)</script>\n**太字** [1]');
+  assert.ok(!html.includes("<script>"));
+  assert.ok(html.includes("&lt;script&gt;"));
+  assert.ok(html.includes("<strong>太字</strong>"));
+  assert.ok(html.includes('class="cite"'));
+});
+
+test("markdown renders headings and both list kinds", () => {
+  const html = renderMarkdown("### 見出し\n- a\n- b\n\n1. x\n2. y");
+  assert.equal(html, "<h3>見出し</h3><ul><li>a</li><li>b</li></ul><ol><li>x</li><li>y</li></ol>");
+});
+
+test("service config follows the UI rules in CLAUDE.md", () => {
+  assert.match(SERVICE.id, /^[a-z][a-z0-9-]*$/, "id: lowercase letters, digits and hyphens");
+  assert.ok([...SERVICE.shortName].length <= 8, "shortName fits the header on one line");
+  assert.equal(SERVICE.suggestions.length, 4, "four suggestions");
+  for (const s of SERVICE.suggestions) assert.ok([...s].length <= 12, `suggestion too long: ${s}`);
+  assert.ok(!SERVICE.notice.includes("\n"), "notice is one line");
+  assert.ok(SERVICE.price.label.includes(`${SERVICE.price.amount.toLocaleString("ja-JP")}円`), "price label matches amount");
+  for (const c of [SERVICE.theme.accent, SERVICE.theme.accent2, ...SERVICE.theme.ambient]) assert.match(c, /^#[0-9a-f]{6}$/i);
+});
+
+test("accent colour is readable on white (WCAG AA, 4.5:1)", () => {
+  const lum = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => {
+      const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const ratio = 1.05 / (lum(SERVICE.theme.accent) + 0.05);
+  assert.ok(ratio >= 4.5, `contrast ${ratio.toFixed(2)} < 4.5`);
+});
+
+test("Nagoya: all 16 ward fire stations are listed with a 0119 number", async () => {
+  const { STATIONS } = await import("../../src/config/stations.ts");
+  const { SYSTEM_PROMPT } = await import("../../src/config/prompt.ts");
+  assert.equal(STATIONS.length, 16);
+  assert.equal(new Set(STATIONS.map((s) => s.ward)).size, 16, "one station per ward");
+  for (const s of STATIONS) {
+    assert.match(s.tel, /^052-\d{3}-0119$/, `${s.name}: ${s.tel}`);
+    assert.ok(s.address.startsWith(`名古屋市${s.ward}`), `${s.name}: address in its ward`);
+    assert.ok(SYSTEM_PROMPT.includes(`${s.name}（${s.ward}）${s.tel}`), `${s.name} is in the prompt`);
+  }
+  assert.ok(!SYSTEM_PROMPT.includes("052-961-1111"), "city hall number is not a fire station");
+});
