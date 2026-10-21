@@ -19,6 +19,22 @@ async function stubCities(page: Page) {
   return hits;
 }
 
+// カードの出現アニメーション（scale・translate を少しずつ遅らせて動かす）が終わってから位置を測る。
+// 背景の光（.ambient）は無限に動くので待たない
+async function settle(page: Page) {
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => {
+          const t = (a.effect as KeyframeEffect | null)?.target;
+          return t instanceof Element && !t.closest(".ambient");
+        })
+        .map((a) => a.finished.catch(() => undefined)),
+    ),
+  );
+}
+
 test("最初の画面で地域の選び方がわかり、入力欄が無い", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("どの地域の消防の届出を調べますか");
@@ -28,6 +44,7 @@ test("最初の画面で地域の選び方がわかり、入力欄が無い", as
   await expect(page.getByText("ほかの政令指定都市は準備中です。")).toBeVisible();
   await expect(page.getByTestId("suggest")).toBeHidden();
   // 6都市のカードがファーストビューに収まる
+  await settle(page);
   const last = await page.locator("#cities a").last().boundingBox();
   expect(last!.y + last!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
 });
@@ -36,6 +53,7 @@ test("6都市のカードは北から順に並び、各都市のサイトへの�
   await page.goto("/");
   const links = page.locator("#cities a");
   await expect(links).toHaveCount(6);
+  await settle(page);
   for (const [i, [name, slug]] of CITIES.entries()) {
     await expect(links.nth(i)).toContainText(name);
     await expect(links.nth(i)).toHaveAttribute("href", `https://${slug}.todokede.jp/`);
@@ -46,8 +64,14 @@ test("6都市のカードは北から順に並び、各都市のサイトへの�
 
 test("スマホでは2列、PCでは3列で、横スクロールが無い", async ({ page }, info) => {
   await page.goto("/");
+  const cols = info.project.name.startsWith("desktop") ? 3 : 2;
+  // レイアウト上の列（transform の影響を受けない）
+  const layoutCols = await page.locator("#cities > li").evaluateAll((els) => new Set(els.map((e) => (e as HTMLElement).offsetLeft)).size);
+  expect(layoutCols).toBe(cols);
+  // 画面に見えている列（アニメーションが終わってから測る）
+  await settle(page);
   const xs = await page.locator("#cities a").evaluateAll((els) => new Set(els.map((e) => Math.round(e.getBoundingClientRect().x))).size);
-  expect(xs).toBe(info.project.name.startsWith("desktop") ? 3 : 2);
+  expect(xs).toBe(cols);
   for (const width of [360, page.viewportSize()!.width]) {
     await page.setViewportSize({ width, height: 740 });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
