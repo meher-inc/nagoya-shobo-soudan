@@ -41,7 +41,9 @@ test("最初の画面で地域の選び方がわかり、入力欄が無い", as
   await expect(page.getByText("トドケデ AI", { exact: true })).toBeVisible();
   await expect(page.getByText("消防法務AIエージェント")).toBeVisible();
   await expect(page.locator("textarea, input, form")).toHaveCount(0);
-  await expect(page.getByText("ほかの政令指定都市は準備中です。")).toBeVisible();
+  // 都市版がない地域は全国版へ
+  await expect(page.locator("#other")).toHaveAttribute("href", "https://zenkoku.todokede.jp/");
+  await expect(page.locator("#other")).toContainText("上記以外の地域");
   await expect(page.getByTestId("suggest")).toBeHidden();
   // 6都市のカードがファーストビューに収まる
   await settle(page);

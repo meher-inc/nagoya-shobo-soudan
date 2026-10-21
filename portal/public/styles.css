@@ -102,7 +102,10 @@ a { color: inherit; }
 .city-wide .city-arrow { opacity: 1; }
 @media (min-width: 640px) { .suggest .city-wide { max-width: calc((100% - 28px) / 3 * 2 + 14px); } }
 
-.more { margin: 16px 2px 0; font-size: 13px; color: var(--ink-3); }
+/* 都市版がない地域（全国版） */
+.city-other { margin-top: 14px; min-height: 64px; animation: rise 0.55s var(--spring) 0.24s both; }
+.city-other .city-name { font-size: 16px; }
+.city-other .city-pref { font-size: 12.5px; }
 
 .footer { margin-top: 32px; font-size: 12px; color: var(--ink-3); line-height: 1.6; }
 .footer p { margin: 0 0 4px; }
