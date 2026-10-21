@@ -22,6 +22,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # The repository token is scoped for the usage report (D1 read). Pass it to the E2E only when the
+    # variable E2E_REAL_AI is "true"; otherwise the tests run against the mock model.
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ vars.E2E_REAL_AI == 'true' && secrets.CLOUDFLARE_API_TOKEN || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6

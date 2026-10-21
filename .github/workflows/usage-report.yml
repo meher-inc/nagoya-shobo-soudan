@@ -1,5 +1,5 @@
 # 政令市版の相談件数（直近30日の質問数と利用者数）を毎週数え、Issue「相談件数レポート」にコメントする。
-# 判定（2026-12-21）：京都・東京・名古屋・札幌の合計が月300件に届いたら、残り17都市を公開する。
+# 判定（2026-12-21）：公開済みの都市（京都・東京・名古屋・札幌・大阪・福岡）の合計が月300件に届いたら、残りの都市を公開する。
 # 秘密値 CLOUDFLARE_API_TOKEN（D1 の読み取り権限）と CLOUDFLARE_ACCOUNT_ID が必要。
 name: 相談件数レポート
 
@@ -41,7 +41,7 @@ jobs:
             echo "| 都市 | 質問数 | 利用者数 |"
             echo "|---|---|---|"
           } > report.md
-          for pair in "京都市:kyoto-shobo-soudan" "東京都:shobo-soudan" "名古屋市:nagoya-shobo-soudan" "札幌市:sapporo-shobo-soudan"; do
+          for pair in "京都市:kyoto-shobo-soudan" "東京都:shobo-soudan" "名古屋市:nagoya-shobo-soudan" "札幌市:sapporo-shobo-soudan" "大阪市:osaka-shobo-soudan" "福岡市:fukuoka-shobo-soudan"; do
             name=${pair%%:*}; db=${pair#*:}
             q="$SQL"; [ "$db" = kyoto-shobo-soudan ] && q="$SQL_KYOTO"
             if out=$(npx -y wrangler@4 d1 execute "$db" --remote --json --command "$q" 2>err.txt); then
@@ -57,7 +57,7 @@ jobs:
           {
             echo "| 合計 | $total | |"
             echo
-            echo "判定の基準：4都市の合計が月300件（判定日 2026-12-21）"
+            echo "判定の基準：公開済み都市の合計が月300件（判定日 2026-12-21）"
           } >> report.md
           cat report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Issue に記録する
