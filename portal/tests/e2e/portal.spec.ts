@@ -1,5 +1,14 @@
 import { test, expect, type Page } from "@playwright/test";
 
+const CITIES = [
+  ["札幌市", "sapporo"],
+  ["東京都", "tokyo"],
+  ["名古屋市", "nagoya"],
+  ["京都市", "kyoto"],
+  ["大阪市", "osaka"],
+  ["福岡市", "fukuoka"],
+] as const;
+
 // 各都市のサイトへの移動は外へ出さず、届いた URL だけ確かめる
 async function stubCities(page: Page) {
   const hits: string[] = [];
@@ -10,56 +19,73 @@ async function stubCities(page: Page) {
   return hits;
 }
 
-test("開いた瞬間に入力欄にフォーカスがあり、スケルトンが消える", async ({ page }) => {
+test("最初の画面で地域の選び方がわかり、入力欄が無い", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator("#input")).toBeFocused();
-  await expect(page.getByTestId("skeleton")).toHaveCount(0);
-  await expect(page.locator("h1, h2")).toHaveCount(0);
-  await expect(page.locator(".chip")).toHaveCount(4);
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-  expect(overflow).toBeLessThanOrEqual(0);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("どの地域の消防の届出を調べますか");
+  await expect(page.getByText("トドケデ AI", { exact: true })).toBeVisible();
+  await expect(page.getByText("消防法務AIエージェント")).toBeVisible();
+  await expect(page.locator("textarea, input, form")).toHaveCount(0);
+  await expect(page.getByText("ほかの政令指定都市は準備中です。")).toBeVisible();
+  await expect(page.getByTestId("suggest")).toBeHidden();
+  // 6都市のカードがファーストビューに収まる
+  const last = await page.locator("#cities a").last().boundingBox();
+  expect(last!.y + last!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
 });
 
-test("地域を選ぶ前に送ると地域の選択が開き、選ぶとその都市へ質問を渡す", async ({ page }) => {
-  const hits = await stubCities(page);
+test("6都市のカードは北から順に並び、各都市のサイトへのリンク", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("city-pill")).toHaveText(/地域を選択/);
-  await page.locator("#input").fill("飲食店を開くときの届出は？");
-  await page.locator("#send").click();
-  const sheet = page.getByRole("dialog");
-  await expect(sheet).toBeVisible();
-  await sheet.getByRole("link", { name: /名古屋市/ }).click();
-  await page.waitForURL(/nagoya\.todokede\.jp/);
-  expect(hits[0]).toBe(`https://nagoya.todokede.jp/?q=${encodeURIComponent("飲食店を開くときの届出は？")}`);
-});
-
-test("選んだ地域を覚えていて、質問の候補からすぐ相談に進む", async ({ page }) => {
-  const hits = await stubCities(page);
-  await page.goto("/");
-  await page.getByTestId("city-pill").click();
-  await page.getByRole("dialog").getByRole("link", { name: /大阪市/ }).click();
-  await expect(page.getByRole("dialog")).toBeHidden();
-  await expect(page.getByTestId("city-pill")).toHaveText(/大阪市/);
-  await page.reload();
-  await expect(page.getByTestId("city-pill")).toHaveText(/大阪市/);
-  await page.locator(".chip").first().click();
-  await page.waitForURL(/osaka\.todokede\.jp/);
-  expect(hits[0]).toContain("https://osaka.todokede.jp/?q=");
-});
-
-test("地域の一覧は公開済みの都市へのリンクで、Escape で閉じる", async ({ page }) => {
-  await page.goto("/");
-  await page.getByTestId("city-pill").click();
-  const links = page.getByRole("dialog").getByRole("link").filter({ hasText: /市|都/ });
+  const links = page.locator("#cities a");
   await expect(links).toHaveCount(6);
-  await expect(page.getByRole("link", { name: /京都市/ })).toHaveAttribute("href", "https://kyoto.todokede.jp/");
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toBeHidden();
+  for (const [i, [name, slug]] of CITIES.entries()) {
+    await expect(links.nth(i)).toContainText(name);
+    await expect(links.nth(i)).toHaveAttribute("href", `https://${slug}.todokede.jp/`);
+    const box = await links.nth(i).boundingBox();
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+  }
+});
+
+test("スマホでは2列、PCでは3列で、横スクロールが無い", async ({ page }, info) => {
+  await page.goto("/");
+  const xs = await page.locator("#cities a").evaluateAll((els) => new Set(els.map((e) => Math.round(e.getBoundingClientRect().x))).size);
+  expect(xs).toBe(info.project.name.startsWith("desktop") ? 3 : 2);
+  for (const width of [360, page.viewportSize()!.width]) {
+    await page.setViewportSize({ width, height: 740 });
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+  }
+});
+
+test("選んだ地域を端末に保存し、次に開くと「前回選んだ地域」として上に出す", async ({ page }) => {
+  const hits = await stubCities(page);
+  await page.goto("/");
+  await page.locator("#cities").getByRole("link", { name: /大阪市/ }).click();
+  await page.waitForURL(/osaka\.todokede\.jp/);
+  expect(hits[0]).toBe("https://osaka.todokede.jp/");
+  await page.goto("/");
+  const suggest = page.getByTestId("suggest");
+  await expect(suggest).toBeVisible();
+  await expect(suggest).toContainText("前回選んだ地域");
+  await expect(suggest.getByRole("link")).toHaveAttribute("href", "https://osaka.todokede.jp/");
+  await expect(suggest.getByRole("link")).toContainText("大阪市");
+});
+
+test("推定した地域があれば「お近くの地域」として上に出す", async ({ page }) => {
+  // 本番では Worker が cf.regionCode から data-guess を入れる。ローカルには cf が無いので HTML を書き換えて確かめる
+  await page.route("**/", async (route) => {
+    const res = await route.fetch();
+    const body = (await res.text()).replace('data-guess=""', 'data-guess="nagoya"');
+    return route.fulfill({ response: res, body });
+  });
+  await page.goto("/");
+  const suggest = page.getByTestId("suggest");
+  await expect(suggest).toContainText("お近くの地域");
+  await expect(suggest.getByRole("link")).toHaveAttribute("href", "https://nagoya.todokede.jp/");
 });
 
 test("検索エンジン向けの情報（説明・OGP・サイトマップ）がある", async ({ page, request }) => {
   const html = await (await request.get("/")).text();
-  expect(html).toContain('href="https://fukuoka.todokede.jp/"');
+  for (const [, slug] of CITIES) expect(html).toContain(`href="https://${slug}.todokede.jp/"`);
+  expect(html).not.toContain("?q=");
   expect(html).toContain('property="og:image"');
   expect(html).not.toContain("%ORIGIN%");
   const sitemap = await (await request.get("/sitemap.xml")).text();
@@ -67,5 +93,6 @@ test("検索エンジン向けの情報（説明・OGP・サイトマップ）�
   expect((await request.get("/robots.txt")).ok()).toBeTruthy();
   expect((await request.get("/og.png")).headers()["content-type"]).toContain("image/png");
   await page.goto("/");
+  await expect(page).toHaveTitle(/トドケデ AI/);
   await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", /消防/);
 });

@@ -2,7 +2,7 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#ffffff" />
     <title>トドケデ AI｜消防の届出・防火管理をAIに相談（札幌・東京・名古屋・京都・大阪・福岡）</title>
     <meta name="description" content="事業所の消防の届出、防火管理、消防用設備等の点検をAIに無料で相談できます。都市ごとの火災予防条例に合わせて、札幌市・東京都・名古屋市・京都市・大阪市・福岡市に対応。" />
@@ -20,81 +20,41 @@
     <script type="application/ld+json">
       {"@context":"https://schema.org","@type":"WebSite","name":"トドケデ AI","url":"%ORIGIN%/","inLanguage":"ja","publisher":{"@type":"Organization","name":"MeHer株式会社","url":"https://meher-inc.co.jp/"}}
     </script>
-    <style>
-      html,body{margin:0;background:#fff;height:100%}
-      #boot{position:fixed;inset:0;z-index:50;background:#fff;display:flex;flex-direction:column;transition:opacity .45s ease,filter .45s ease}
-      #boot.done{opacity:0;filter:blur(8px);pointer-events:none}
-      .sk{background:linear-gradient(100deg,#eef0f3 30%,#f8f9fb 50%,#eef0f3 70%);background-size:300% 100%;animation:skm 1.3s ease-in-out infinite;border-radius:14px}
-      @keyframes skm{0%{background-position:100% 0}100%{background-position:0 0}}
-      @media (prefers-reduced-motion:reduce){.sk{animation:none}}
-      .sk-head{margin:max(12px,env(safe-area-inset-top)) 16px 0;height:52px;border-radius:26px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;background:#f6f7f9}
-      .sk-body{flex:1;padding:28px 16px 10px;display:flex;flex-direction:column;justify-content:flex-end;gap:8px;max-width:720px;width:100%;margin:0 auto;box-sizing:border-box}
-      .sk-chips{display:flex;flex-wrap:wrap;gap:8px}
-      .sk-foot{margin:0 auto max(12px,env(safe-area-inset-bottom));width:calc(100% - 32px);max-width:720px;height:56px;border-radius:28px}
-    </style>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body data-guess="">
-    <div id="boot" aria-busy="true" aria-label="読み込み中" data-testid="skeleton">
-      <div class="sk-head">
-        <div class="sk" style="width:110px;height:18px"></div>
-        <div class="sk" style="width:96px;height:32px;border-radius:999px"></div>
-      </div>
-      <div class="sk-body">
-        <div class="sk-chips">
-          <div class="sk" style="width:150px;height:42px;border-radius:999px"></div>
-          <div class="sk" style="width:170px;height:42px;border-radius:999px"></div>
-          <div class="sk" style="width:140px;height:42px;border-radius:999px"></div>
-          <div class="sk" style="width:180px;height:42px;border-radius:999px"></div>
-        </div>
-      </div>
-      <div class="sk sk-foot"></div>
-      <button id="boot-retry" hidden onclick="location.reload()" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:12px 20px;border-radius:8px;border:1px solid rgba(0,0,0,.08);background:#fff;font:inherit;font-size:15px;color:#15171c">読み込みに時間がかかっています。再読み込みする</button>
-    </div>
-    <script>setTimeout(function(){var b=document.getElementById("boot-retry");if(b&&!document.querySelector(".app.ready"))b.hidden=false},10000)</script>
-
     <div class="ambient" aria-hidden="true"><i></i><i></i><i></i></div>
 
     <div class="app">
-      <header class="header glass">
-        <div class="brand"><img src="/icon.svg" alt="" width="22" height="22" />トドケデ AI</div>
-        <button type="button" class="city-pill glass rp" id="city-pill" aria-haspopup="dialog" aria-controls="sheet" data-testid="city-pill">
-          <span id="city-label">地域を選択</span>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-        </button>
+      <header class="header">
+        <div class="brand"><img src="/icon.svg" alt="" width="28" height="28" /><span>トドケデ AI</span></div>
+        <div class="tagline">消防法務AIエージェント</div>
       </header>
 
-      <main class="thread">
-        <div class="empty">
-          <div class="chips" id="chips">
-            <button type="button" class="chip glass rp" style="animation-delay:0s">店舗開業時の消防手続</button>
-            <button type="button" class="chip glass rp" style="animation-delay:.06s">防火管理者が必要な条件</button>
-            <button type="button" class="chip glass rp" style="animation-delay:.12s">消防設備点検の頻度</button>
-            <button type="button" class="chip glass rp" style="animation-delay:.18s">届出の提出先と電子申請</button>
-          </div>
-        </div>
+      <main class="main">
+        <h1 class="title">どの地域の<wbr />消防の届出を<wbr />調べますか</h1>
+        <p class="lead">地域を選ぶと、その地域の火災予防条例に合わせてAIに相談できます。</p>
+
+        <section class="suggest" id="suggest" aria-labelledby="suggest-label" hidden data-testid="suggest">
+          <div class="suggest-label" id="suggest-label"></div>
+          <a class="city city-wide" id="suggest-link" href="">
+            <span class="city-text"><span class="city-name"></span><span class="city-pref"></span></span>
+            <svg class="city-arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+          </a>
+        </section>
+
+        <nav aria-labelledby="list-label">
+          <h2 class="list-label" id="list-label">対応している地域</h2>
+          <ul class="grid" id="cities"><!--CITY_CARDS--></ul>
+        </nav>
+        <p class="more">ほかの政令指定都市は準備中です。</p>
       </main>
 
-      <div class="composer-wrap">
-        <form class="composer glass" id="composer" autocomplete="off">
-          <textarea id="input" rows="1" placeholder="消防のことを相談" aria-label="相談内容" maxlength="2000" enterkeyhint="send"></textarea>
-          <button type="submit" class="send rp" id="send" aria-label="送信" disabled>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
-          </button>
-        </form>
-        <p class="note">AIの回答は目安です。最終確認は所轄の消防署へ。緊急時は119番。</p>
-      </div>
+      <footer class="footer">
+        <p>AIの回答は目安です。最終確認は所轄の消防署へ。緊急時は119番。</p>
+        <p><a href="https://meher-inc.co.jp/" rel="noopener">運営：MeHer株式会社</a></p>
+      </footer>
     </div>
-
-    <div class="scrim" id="scrim" hidden></div>
-    <div class="sheet glass" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" tabindex="-1" hidden>
-      <div class="grab"></div>
-      <div class="section-label" id="sheet-title">相談する地域</div>
-      <nav class="list stagger" id="city-list" aria-label="対応している地域"><!--CITY_ROWS--></nav>
-      <div class="links"><a href="https://meher-inc.co.jp/" rel="noopener">運営：MeHer株式会社</a></div>
-    </div>
-
-    <div class="toast glass" id="toast" role="status" aria-live="polite" hidden></div>
 
     <script src="/app.js" defer></script>
   </body>

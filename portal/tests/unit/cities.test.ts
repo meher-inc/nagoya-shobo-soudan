@@ -18,9 +18,11 @@ test("都市の slug と都道府県コードは重複しない", () => {
   for (const c of CITIES) assert.match(cityUrl(c.slug), /^https:\/\/[a-z]+\.todokede\.jp\/$/);
 });
 
-test("最初の画面に見出しを置かない", () => {
+test("入口は都市を選ぶだけで、入力欄を置かない", () => {
   const html = readFileSync("public/index.html", "utf8");
-  assert.doesNotMatch(html, /<h[12][\s>]/);
+  assert.doesNotMatch(html, /<(textarea|input|form)[\s>]/);
+  assert.match(html, /<h1[^>]*>どの地域の<wbr \/>消防の届出を<wbr \/>調べますか<\/h1>/);
+  assert.doesNotMatch(html, /—/);
 });
 
 test("主色は白背景でコントラスト比4.5以上", () => {

@@ -7,7 +7,7 @@ const SECURITY_HEADERS: Record<string, string> = {
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
   "Content-Security-Policy":
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action https://*.todokede.jp",
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
 };
 
 export default {
@@ -30,13 +30,15 @@ export default {
       const asset = await env.ASSETS.fetch(new Request(new URL("/", url), request));
       const cf = (request as Request & { cf?: { country?: string; regionCode?: string } }).cf;
       const guess = guessCity(cf?.country, cf?.regionCode);
-      const rows = CITIES.map(
+      const arrow =
+        '<svg class="city-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>';
+      const cards = CITIES.map(
         (c) =>
-          `<a class="row rp" data-city="${c.slug}" href="${cityUrl(c.slug)}"><span class="t">${c.name}</span><span class="host">${c.slug}.todokede.jp</span></a>`,
+          `<li><a class="city" data-city="${c.slug}" href="${cityUrl(c.slug)}"><span class="city-text"><span class="city-name">${c.name}</span><span class="city-pref">${c.pref}</span></span>${arrow}</a></li>`,
       ).join("");
       const html = (await asset.text())
         .replace('data-guess=""', `data-guess="${guess}"`)
-        .replace("<!--CITY_ROWS-->", rows)
+        .replace("<!--CITY_CARDS-->", cards)
         .replaceAll("%ORIGIN%", env.CANONICAL_ORIGIN);
       return new Response(html, {
         headers: {
