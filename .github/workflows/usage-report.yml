@@ -1,0 +1,68 @@
+# 政令市版の相談件数（直近30日の質問数と利用者数）を毎週数え、Issue「相談件数レポート」にコメントする。
+# 判定（2026-12-21）：京都・東京・名古屋・札幌の合計が月300件に届いたら、残り17都市を公開する。
+# 秘密値 CLOUDFLARE_API_TOKEN（D1 の読み取り権限）と CLOUDFLARE_ACCOUNT_ID が必要。
+name: 相談件数レポート
+
+on:
+  schedule:
+    - cron: "0 0 * * 1" # 毎週月曜 9:00（日本時間）
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 件数を数える
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "CLOUDFLARE_API_TOKEN が未設定のため数えられません" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          # created_at はミリ秒（名古屋・札幌・東京）と秒（京都）が混在するので秒にそろえる
+          SQL="SELECT COUNT(*) AS questions, COUNT(DISTINCT user_id) AS users FROM (SELECT m.created_at, c.user_id FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE m.role = 'user') WHERE (CASE WHEN created_at > 100000000000 THEN created_at / 1000 ELSE created_at END) > CAST(strftime('%s','now') AS INTEGER) - 30*86400"
+          SQL_KYOTO="SELECT COUNT(*) AS questions, COUNT(DISTINCT user_id) AS users FROM messages WHERE role = 'user' AND (CASE WHEN created_at > 100000000000 THEN created_at / 1000 ELSE created_at END) > CAST(strftime('%s','now') AS INTEGER) - 30*86400"
+          total=0
+          {
+            echo "## 相談件数（直近30日、$(TZ=Asia/Tokyo date +%Y-%m-%d) 時点）"
+            echo
+            echo "| 都市 | 質問数 | 利用者数 |"
+            echo "|---|---|---|"
+          } > report.md
+          for pair in "京都市:kyoto-shobo-soudan" "東京都:shobo-soudan" "名古屋市:nagoya-shobo-soudan" "札幌市:sapporo-shobo-soudan"; do
+            name=${pair%%:*}; db=${pair#*:}
+            q="$SQL"; [ "$db" = kyoto-shobo-soudan ] && q="$SQL_KYOTO"
+            if out=$(npx -y wrangler@4 d1 execute "$db" --remote --json --command "$q" 2>/dev/null); then
+              n=$(echo "$out" | node -e 'const r=JSON.parse(require("fs").readFileSync(0));const x=r[0].results[0];console.log(x.questions+" "+x.users)')
+              set -- $n
+              echo "| $name | $1 | $2 |" >> report.md
+              total=$((total + $1))
+            else
+              echo "| $name | 取得できず | - |" >> report.md
+            fi
+          done
+          {
+            echo "| 合計 | $total | |"
+            echo
+            echo "判定の基準：4都市の合計が月300件（判定日 2026-12-21）"
+          } >> report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Issue に記録する
+        run: |
+          num=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "相談件数レポート in:title" --json number --jq '.[0].number')
+          if [ -z "$num" ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "相談件数レポート" --body-file report.md
+          else
+            gh issue comment "$num" --repo "$GITHUB_REPOSITORY" --body-file report.md
+          fi
