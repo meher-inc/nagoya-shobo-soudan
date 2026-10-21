@@ -1,0 +1,14 @@
+import { chromium, devices } from "@playwright/test";
+const b = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH });
+const ctx = await b.newContext({ ...devices["iPhone 15"], deviceScaleFactor: 2 });
+const p = await ctx.newPage();
+await p.goto(process.env.URL);
+await p.waitForTimeout(900);
+await p.screenshot({ path: "docs/screenshots/1-home.png" });
+await p.locator("#city-pill").click();
+await p.waitForTimeout(900);
+await p.screenshot({ path: "docs/screenshots/2-cities.png" });
+await p.locator('[data-city="nagoya"]').click();
+await p.waitForTimeout(700);
+await p.screenshot({ path: "docs/screenshots/3-selected.png" });
+await b.close();

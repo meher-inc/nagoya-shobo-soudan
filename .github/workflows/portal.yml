@@ -1,0 +1,35 @@
+# トドケデ AI 入口（portal/、ai.todokede.jp）の型検査・単体テスト・E2E。デプロイは Cloudflare Workers Builds（ルートディレクトリ portal）
+name: 入口のテスト
+
+on:
+  push:
+    branches: [main]
+    paths: ["portal/**", ".github/workflows/portal.yml"]
+  pull_request:
+    paths: ["portal/**", ".github/workflows/portal.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: portal
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: portal/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm run test:unit
+      - run: pnpm exec playwright install --with-deps chromium webkit
+      - run: pnpm run test:e2e --reporter=list,github
