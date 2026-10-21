@@ -34,11 +34,17 @@ CITIES = {
     "kitakyushu": ("北九州市", "福岡県"),
     "fukuoka": ("福岡市", "福岡県"),
     "kumamoto": ("熊本市", "熊本県"),
+    # 一般版（都市版がない地域）。判定は jurisdiction "general"（国の政令＋確認済み管轄の集計）
+    "zenkoku": ("全国", "全国"),
 }
+
+# runRules に渡す地域。省いた都市は "<英字>-city"
+JURISDICTION = {"zenkoku": "general"}
 
 # 既存のレート制限 namespace（アカウント内で重複させない）
 TAKEN = {"4101", "6761"}
-IGNORE = {"node_modules", ".git", "CITY_BRIEF.md", "gen-city.py", "dist", "test-results", "playwright-report", ".wrangler", ".dev.vars"}
+# portal/（入口）と相談件数レポート・入口の CI は名古屋のリポジトリだけに置く
+IGNORE = {"portal", "usage-report.yml", "portal.yml", "node_modules", ".git", "CITY_BRIEF.md", "gen-city.py", "dist", "test-results", "playwright-report", ".wrangler", ".dev.vars"}
 
 
 def namespace_for(service_id: str) -> str:
@@ -100,20 +106,20 @@ def build(slug: str) -> Path:
     sub(w, "nagoya.todokede.jp", f"{slug}.todokede.jp")
     sub(w, '"namespace_id": "6761"', f'"namespace_id": "{ns}"')
     sub(out / "package.json", '"name": "nagoya-shobo-soudan"', f'"name": "{sid}"')
-    sub(out / "src/worker/chat.ts", 'runRules("nagoya-city"', f'runRules("{slug}-city"')
+    sub(out / "src/worker/chat.ts", 'runRules("nagoya-city"', f'runRules("{JURISDICTION.get(slug, slug + "-city")}"')
 
     # ドキュメント
     sub(out / "CLAUDE.md", "# 名古屋市 消防相談AI（meher-inc/service-template から作成）", f"# トドケデ AI（{ja}）（meher-inc/service-template から作成）")
     r = out / "README.md"
     rs = r.read_text()
     rs = rs.replace("# 名古屋市 消防相談AI", f"# トドケデ AI（{ja}）")
-    rs = rs.replace("名古屋市内の事業所向けに", f"{ja}内の事業所向けに")
+    rs = rs.replace("名古屋市内の事業所向けに", "全国の事業所向けに" if slug == "zenkoku" else f"{ja}内の事業所向けに")
     rs = rs.replace("## 名古屋版で差し替えた内容", f"## {ja}版で差し替えた内容")
     rs = rs.replace("名古屋市消防局の公式ページで確認した事実だけを、出典URLと確認日つきで記載（提出先の区分、電子申請、防火対象物使用開始届＝火災予防条例第66条 など）",
                     f"{ja}の消防局の公式ページで確認した事実だけを、出典URLと確認日つきで記載")
     rs = rs.replace("名古屋市の情報は", f"{ja}の情報は")
     rs = rs.replace("nagoya.todokede.jp などのサブドメイン", f"{slug}.todokede.jp などのサブドメイン")
-    rs = rs.replace("名古屋市火災予防条例・消防法等施行細則", f"{ja}火災予防条例・同規則（src/rules/cities/{slug}.ts、横浜市・大阪市は src/rules/filings.ts）")
+    rs = rs.replace("名古屋市火災予防条例・消防法等施行細則", "確認済みの21管轄の火災予防条例の集計（src/rules/filings.ts の generalFilings）" if slug == "zenkoku" else f"{ja}火災予防条例・同規則（src/rules/cities/{slug}.ts、横浜市・大阪市は src/rules/filings.ts）")
     r.write_text(rs)
 
     (out / "docs/domain-setup.md").write_text(f"""# {slug}.todokede.jp の接続と公開設定
@@ -139,5 +145,5 @@ todokede.jp の DNS（お名前.com）には、`{slug}` の CNAME（`customers.m
 
 
 if __name__ == "__main__":
-    for slug in sys.argv[2:] or CITIES:
+    for slug in sys.argv[2:] or [c for c in CITIES if c != "zenkoku"]:
         build(slug)
