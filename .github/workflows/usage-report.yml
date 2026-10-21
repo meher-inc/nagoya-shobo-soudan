@@ -27,7 +27,8 @@ jobs:
       - name: 件数を数える
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
-            echo "CLOUDFLARE_API_TOKEN が未設定のため数えられません" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "::error::CLOUDFLARE_API_TOKEN が未設定のため数えられません"
+            echo "CLOUDFLARE_API_TOKEN が未設定のため数えられません" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
           # created_at はミリ秒（名古屋・札幌・東京）と秒（京都）が混在するので秒にそろえる
@@ -43,13 +44,14 @@ jobs:
           for pair in "京都市:kyoto-shobo-soudan" "東京都:shobo-soudan" "名古屋市:nagoya-shobo-soudan" "札幌市:sapporo-shobo-soudan"; do
             name=${pair%%:*}; db=${pair#*:}
             q="$SQL"; [ "$db" = kyoto-shobo-soudan ] && q="$SQL_KYOTO"
-            if out=$(npx -y wrangler@4 d1 execute "$db" --remote --json --command "$q" 2>/dev/null); then
+            if out=$(npx -y wrangler@4 d1 execute "$db" --remote --json --command "$q" 2>err.txt); then
               n=$(echo "$out" | node -e 'const r=JSON.parse(require("fs").readFileSync(0));const x=r[0].results[0];console.log(x.questions+" "+x.users)')
               set -- $n
               echo "| $name | $1 | $2 |" >> report.md
               total=$((total + $1))
             else
               echo "| $name | 取得できず | - |" >> report.md
+              echo "::warning::$name（$db）を数えられませんでした: $(tail -c 300 err.txt | tr '\n' ' ')"
             fi
           done
           {
