@@ -93,17 +93,12 @@ test("選んだ地域を端末に保存し、次に開くと「前回選んだ�
   await expect(suggest.getByRole("link")).toContainText("大阪市");
 });
 
-test("推定した地域があれば「お近くの地域」として上に出す", async ({ page }) => {
-  // 本番では Worker が cf.regionCode から data-guess を入れる。ローカルには cf が無いので HTML を書き換えて確かめる
-  await page.route("**/", async (route) => {
-    const res = await route.fetch();
-    const body = (await res.text()).replace('data-guess=""', 'data-guess="nagoya"');
-    return route.fulfill({ response: res, body });
-  });
+test("推定はせず、初めての人には前回の地域を出さない", async ({ page, request }) => {
+  const html = await (await request.get("/")).text();
+  expect(html).not.toContain("data-guess");
+  expect(html).not.toContain("お近くの地域");
   await page.goto("/");
-  const suggest = page.getByTestId("suggest");
-  await expect(suggest).toContainText("お近くの地域");
-  await expect(suggest.getByRole("link")).toHaveAttribute("href", "https://nagoya.todokede.jp/");
+  await expect(page.getByTestId("suggest")).toBeHidden();
 });
 
 test("検索エンジン向けの情報（説明・OGP・サイトマップ）がある", async ({ page, request }) => {

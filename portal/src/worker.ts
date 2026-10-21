@@ -1,4 +1,4 @@
-import { CITIES, cityUrl, guessCity } from "./cities";
+import { CITIES, cityUrl } from "./cities";
 
 type Env = { ASSETS: Fetcher; CANONICAL_ORIGIN: string };
 
@@ -28,8 +28,6 @@ export default {
 
     if (url.pathname === "/" || url.pathname === "/index.html") {
       const asset = await env.ASSETS.fetch(new Request(new URL("/", url), request));
-      const cf = (request as Request & { cf?: { country?: string; regionCode?: string } }).cf;
-      const guess = guessCity(cf?.country, cf?.regionCode);
       const arrow =
         '<svg class="city-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>';
       const cards = CITIES.map(
@@ -37,7 +35,6 @@ export default {
           `<li><a class="city" data-city="${c.slug}" href="${cityUrl(c.slug)}"><span class="city-text"><span class="city-name">${c.name}</span><span class="city-pref">${c.pref}</span></span>${arrow}</a></li>`,
       ).join("");
       const html = (await asset.text())
-        .replace('data-guess=""', `data-guess="${guess}"`)
         .replace("<!--CITY_CARDS-->", cards)
         .replaceAll("%ORIGIN%", env.CANONICAL_ORIGIN);
       return new Response(html, {
