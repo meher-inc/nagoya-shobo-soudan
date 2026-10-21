@@ -1,20 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { CITIES, cityUrl, guessCity } from "../../src/cities.ts";
+import { CITIES, cityUrl } from "../../src/cities.ts";
 
-test("都道府県コードから公開済みの都市を推定する", () => {
-  assert.equal(guessCity("JP", "23"), "nagoya");
-  assert.equal(guessCity("JP", "JP-13"), "tokyo");
-  assert.equal(guessCity("JP", "1"), "sapporo");
-  assert.equal(guessCity("JP", "14"), "");
-  assert.equal(guessCity("US", "23"), "");
-  assert.equal(guessCity(undefined, undefined), "");
-});
-
-test("都市の slug と都道府県コードは重複しない", () => {
+test("都市の slug は重複しない", () => {
   assert.equal(new Set(CITIES.map((c) => c.slug)).size, CITIES.length);
-  assert.equal(new Set(CITIES.map((c) => c.region)).size, CITIES.length);
   for (const c of CITIES) assert.match(cityUrl(c.slug), /^https:\/\/[a-z]+\.todokede\.jp\/$/);
 });
 

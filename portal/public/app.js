@@ -1,4 +1,4 @@
-// トドケデ AI 入口: 前回選んだ地域（端末に保存）か、推定した地域（cf.regionCode）を一覧の上に出す。選んだ地域は端末に保存する。
+// トドケデ AI 入口: 前回選んだ地域（端末に保存）を一覧の上に出す。選んだ地域は端末に保存する。
 (() => {
   const KEY = "todokede-ai:city";
   const store = {
@@ -9,13 +9,11 @@
   const find = (slug) => cards.find((c) => c.dataset.city === slug);
 
   const saved = store.get();
-  const guess = document.body.dataset.guess || "";
-  const slug = find(saved) ? saved : find(guess) ? guess : "";
+  const slug = find(saved) ? saved : "";
   if (slug) {
     const src = find(slug);
     const box = document.getElementById("suggest");
     const link = document.getElementById("suggest-link");
-    document.getElementById("suggest-label").textContent = slug === saved ? "前回選んだ地域" : "お近くの地域";
     link.href = src.href;
     link.dataset.city = slug;
     link.querySelector(".city-name").textContent = src.querySelector(".city-name").textContent;

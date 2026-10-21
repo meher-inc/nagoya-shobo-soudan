@@ -58,7 +58,7 @@ a { color: inherit; }
 .title { font-size: clamp(22px, 5.6vw, 30px); line-height: 1.45; margin: 0; font-weight: 700; letter-spacing: 0.01em; word-break: keep-all; overflow-wrap: anywhere; }
 .lead { margin: 8px 0 0; font-size: 14px; color: var(--ink-2); }
 
-/* 前回選んだ地域・お近くの地域 */
+/* 前回選んだ地域 */
 .suggest { margin-top: 22px; animation: rise 0.55s var(--spring) both; }
 .suggest-label, .list-label { font-size: 13px; font-weight: 700; color: var(--ink-2); margin: 0 0 8px 2px; }
 .list-label { margin-top: 24px; }
