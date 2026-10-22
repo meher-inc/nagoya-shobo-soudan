@@ -79,7 +79,7 @@ const QUESTIONS: Record<string, { text: string; options: ReplyChip[] }> = {
 };
 const ORDER = ["occupancy", "total_area", "capacity", "floors_above", "fire_use"] as const;
 
-/** 相談文に出てくる区（長い名前から照合し、「中区」と「中川区」を取り違えない） */
+/** 相談文に出てくる区（長い名前から照合し、別の区の名前を含む区を取り違えない） */
 export function findStation(texts: string[]) {
   const t = texts.join("\n").normalize("NFKC");
   return [...STATIONS].sort((a, b) => b.ward.length - a.ward.length).find((s) => s.ward && t.includes(s.ward)) ?? null;

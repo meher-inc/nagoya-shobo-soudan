@@ -34,25 +34,32 @@ test("選択肢の文は判定がそのまま読み取れる（区分の下限�
   check("fire", "火を使う器具はありません。IHのみです。", "fire_use", false);
 });
 
+const S = STATIONS[0];
+const WHERE = S ? `${S.ward}で` : "";
+
 test("届出がある相談には書類作成のボタン、防火管理者が要る相談には消防計画のボタンを出す", () => {
-  const a = act(["中区で飲食店を開店します。延べ面積は400㎡、収容人員は60人、2階建てでコンロを使います。"]);
+  const a = act([`${WHERE}飲食店を開店します。延べ面積は400㎡、収容人員は60人、2階建てでコンロを使います。`]);
   const labels = a.buttons.map((b) => b.label);
   assert.ok(labels.includes("届出書類を作る"));
   assert.ok(labels.includes("消防計画を作る"));
   assert.equal(a.buttons.find((b) => b.label === "届出書類を作る")?.href, DOCS_URL);
   assert.equal(a.buttons.find((b) => b.label === "消防計画を作る")?.href, PLAN_URL);
-  assert.ok(labels.includes("中消防署に電話する"));
+  if (S) assert.ok(labels.includes(`${S.name}に電話する`));
 });
 
-test("区は長い名前から照合し、「中川区」を「中区」と取り違えない", () => {
-  assert.equal(findStation(["中川区の倉庫です"])?.ward, "中川区");
-  assert.equal(findStation(["中区の事務所です"])?.ward, "中区");
+test("区は長い名前から照合し、別の区の名前を含む区を取り違えない", () => {
+  // ある区の名前が別の区の名前を含むとき（例: 北区 と 東北区）は、長い方に当たる
+  for (const long of STATIONS)
+    for (const short of STATIONS)
+      if (long !== short && long.ward.includes(short.ward)) assert.equal(findStation([`${long.ward}の倉庫です`])?.ward, long.ward);
+  for (const s of STATIONS) assert.equal(findStation([`${s.ward}の事務所です`])?.ward, s.ward);
   assert.equal(findStation(["市内の事務所です"]), null);
 });
 
 test("用途・面積などがそろい、区が分からないときは区を聞く", () => {
   const a = act(["飲食店を開店します。延べ面積は120㎡、収容人員は25人、2階建てでコンロを使います。"]);
-  if (a.question?.text === "建物はどの区にありますか？") {
+  if (!STATIONS.length) assert.notEqual(a.question?.text, "建物はどの区にありますか？");
+  else if (a.question?.text === "建物はどの区にありますか？") {
     assert.equal(a.question.options.length, STATIONS.length);
     assert.equal(a.question.options[0].text, `建物は${STATIONS[0].ward}にあります。`);
   } else assert.ok(a.question, "判定に足りない項目があれば、その選択肢を出す");

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { STATIONS } from "../../src/config/stations";
 import { SERVICE } from "../../src/config/service";
 
 const uniqueEmail = (tag: string) => `${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}@example.com`;
@@ -507,10 +508,12 @@ test("用途が分からない相談には、押すだけで答えられる選�
 });
 
 test("区が分かると、その区の消防署に電話するボタンを出す @local", async ({ page }) => {
+  const s = STATIONS[0];
+  test.skip(!s, "消防署の一覧を持たない版（一般版）");
   await page.goto("/");
-  const reply = await ask(page, "中区で飲食店を開店します。延べ面積は120㎡、収容人員は25人、2階建てでコンロを使います。");
-  const tel = reply.getByTestId("action-button").filter({ hasText: "中消防署に電話する" });
-  await expect(tel).toHaveAttribute("href", "tel:0522310119");
+  const reply = await ask(page, `${s.ward}で飲食店を開店します。延べ面積は120㎡、収容人員は25人、2階建てでコンロを使います。`);
+  const tel = reply.getByTestId("action-button").filter({ hasText: `${s.name}に電話する` });
+  await expect(tel).toHaveAttribute("href", `tel:${s.tel.replace(/[^\d]/g, "")}`);
   await expect(reply.getByTestId("action-button").filter({ hasText: "届出書類を作る" })).toBeVisible();
 });
 
