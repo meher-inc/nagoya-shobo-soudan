@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { STATIONS } from "../../src/config/stations";
+import { WARD_STATIONS } from "../../src/worker/actions";
 import { SERVICE } from "../../src/config/service";
 
 const uniqueEmail = (tag: string) => `${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}@example.com`;
@@ -508,7 +508,7 @@ test("用途が分からない相談には、押すだけで答えられる選�
 });
 
 test("区が分かると、その区の消防署に電話するボタンを出す @local", async ({ page }) => {
-  const s = STATIONS[0];
+  const s = WARD_STATIONS[0];
   test.skip(!s, "消防署の一覧を持たない版（一般版）");
   await page.goto("/");
   const reply = await ask(page, `${s.ward}で飲食店を開店します。延べ面積は120㎡、収容人員は25人、2階建てでコンロを使います。`);

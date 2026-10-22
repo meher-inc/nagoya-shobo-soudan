@@ -79,10 +79,13 @@ const QUESTIONS: Record<string, { text: string; options: ReplyChip[] }> = {
 };
 const ORDER = ["occupancy", "total_area", "capacity", "floors_above", "fire_use"] as const;
 
+// 区が確かな消防署だけを使う（管轄区域を確認できていない署は ward が「要確認…」になっている）。同じ区は1つにまとめる
+export const WARD_STATIONS = STATIONS.filter((s, i, all) => /^[^（(\s]+区$/.test(s.ward) && all.findIndex((x) => x.ward === s.ward) === i);
+
 /** 相談文に出てくる区（長い名前から照合し、別の区の名前を含む区を取り違えない） */
 export function findStation(texts: string[]) {
   const t = texts.join("\n").normalize("NFKC");
-  return [...STATIONS].sort((a, b) => b.ward.length - a.ward.length).find((s) => s.ward && t.includes(s.ward)) ?? null;
+  return [...WARD_STATIONS].sort((a, b) => b.ward.length - a.ward.length).find((s) => t.includes(s.ward)) ?? null;
 }
 
 const DOC_WORDS = /届出|届け出|届|申請|書類|様式|選任|使用開始|設置届|点検結果|報告書/;
@@ -114,12 +117,12 @@ export function buildActions(input: { userTexts: string[]; rules: RulesResult | 
   const key = lane === "setsubi" ? undefined : ORDER.find((k) => missing.has(k) && !(TOPIC[k] && answered.includes(`${TOPIC[k]}はわかりません`)));
   if (key) return { buttons, question: QUESTIONS[key] };
   // 用途まで分かっていて区が分からないときは、提出先の消防署を決めるために区を聞く
-  if (STATIONS.length && !station && (filings.length || rules?.install.length))
+  if (WARD_STATIONS.length && !station && (filings.length || rules?.install.length))
     return {
       buttons,
       question: {
         text: "建物はどの区にありますか？",
-        options: STATIONS.filter((s) => s.ward).map((s) => ({ label: s.ward, text: `建物は${s.ward}にあります。` })),
+        options: WARD_STATIONS.map((s) => ({ label: s.ward, text: `建物は${s.ward}にあります。` })),
       },
     };
   return { buttons };

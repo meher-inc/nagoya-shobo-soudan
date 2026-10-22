@@ -1,9 +1,9 @@
 // Run: node --experimental-strip-types --test tests/unit/
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildActions, actionsNote, findStation, DOCS_URL, PLAN_URL } from "../../src/worker/actions.ts";
+import { buildActions, actionsNote, findStation, DOCS_URL, PLAN_URL, WARD_STATIONS } from "../../src/worker/actions.ts";
 import { extractFacts, runRules } from "../../src/rules/extract.ts";
-import { STATIONS } from "../../src/config/stations.ts";
+const STATIONS = WARD_STATIONS;
 
 const J = "nagoya-city" as const;
 const act = (texts: string[], lane?: "gyosei" | "setsubi" | "bengoshi") => buildActions({ userTexts: texts, rules: runRules(J, texts), lane });
