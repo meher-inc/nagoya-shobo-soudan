@@ -1,5 +1,6 @@
 # 政令市版の相談件数（直近30日の質問数と利用者数）を毎週数え、Issue「相談件数レポート」にコメントする。
 # 判定（2026-12-21）：公開済みの都市（京都・東京・名古屋・札幌・大阪・福岡）の合計が月300件に届いたら、残りの都市を公開する。
+# 試験分（?test=1 の端末・管理者のアカウント）は除き、流入元別にも分ける。全国版は判定とは別に数える。
 # 秘密値 CLOUDFLARE_API_TOKEN（D1 の読み取り権限）と CLOUDFLARE_ACCOUNT_ID が必要。
 name: 相談件数レポート
 
@@ -21,6 +22,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -31,34 +33,8 @@ jobs:
             echo "CLOUDFLARE_API_TOKEN が未設定のため数えられません" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          # created_at はミリ秒（名古屋・札幌・東京）と秒（京都）が混在するので秒にそろえる
-          SQL="SELECT COUNT(*) AS questions, COUNT(DISTINCT user_id) AS users FROM (SELECT m.created_at, c.user_id FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE m.role = 'user') WHERE (CASE WHEN created_at > 100000000000 THEN created_at / 1000 ELSE created_at END) > CAST(strftime('%s','now') AS INTEGER) - 30*86400"
-          SQL_KYOTO="SELECT COUNT(*) AS questions, COUNT(DISTINCT user_id) AS users FROM messages WHERE role = 'user' AND (CASE WHEN created_at > 100000000000 THEN created_at / 1000 ELSE created_at END) > CAST(strftime('%s','now') AS INTEGER) - 30*86400"
-          total=0
-          {
-            echo "## 相談件数（直近30日、$(TZ=Asia/Tokyo date +%Y-%m-%d) 時点）"
-            echo
-            echo "| 都市 | 質問数 | 利用者数 |"
-            echo "|---|---|---|"
-          } > report.md
-          for pair in "京都市:kyoto-shobo-soudan" "東京都:shobo-soudan" "名古屋市:nagoya-shobo-soudan" "札幌市:sapporo-shobo-soudan" "大阪市:osaka-shobo-soudan" "福岡市:fukuoka-shobo-soudan"; do
-            name=${pair%%:*}; db=${pair#*:}
-            q="$SQL"; [ "$db" = kyoto-shobo-soudan ] && q="$SQL_KYOTO"
-            if out=$(npx -y wrangler@4 d1 execute "$db" --remote --json --command "$q" 2>err.txt); then
-              n=$(echo "$out" | node -e 'const r=JSON.parse(require("fs").readFileSync(0));const x=r[0].results[0];console.log(x.questions+" "+x.users)')
-              set -- $n
-              echo "| $name | $1 | $2 |" >> report.md
-              total=$((total + $1))
-            else
-              echo "| $name | 取得できず | - |" >> report.md
-              echo "::warning::$name（$db）を数えられませんでした: $(tail -c 300 err.txt | tr '\n' ' ')"
-            fi
-          done
-          {
-            echo "| 合計 | $total | |"
-            echo
-            echo "判定の基準：公開済み都市の合計が月300件（判定日 2026-12-21）"
-          } >> report.md
+          # 試験分（users.is_test）を除き、流入元（users.source）別にも数える。scripts/usage-report.mjs
+          node scripts/usage-report.mjs > report.md
           cat report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Issue に記録する
         run: |

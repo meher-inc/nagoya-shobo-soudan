@@ -44,7 +44,7 @@ JURISDICTION = {"zenkoku": "general"}
 # 既存のレート制限 namespace（アカウント内で重複させない）
 TAKEN = {"4101", "6761"}
 # portal/（入口）と相談件数レポート・入口の CI は名古屋のリポジトリだけに置く
-IGNORE = {"portal", "usage-report.yml", "portal.yml", "node_modules", ".git", "CITY_BRIEF.md", "gen-city.py", "dist", "test-results", "playwright-report", ".wrangler", ".dev.vars"}
+IGNORE = {"portal", "usage-report.yml", "usage-report.mjs", "portal.yml", "node_modules", ".git", "CITY_BRIEF.md", "gen-city.py", "dist", "test-results", "playwright-report", ".wrangler", ".dev.vars"}
 
 
 def namespace_for(service_id: str) -> str:
