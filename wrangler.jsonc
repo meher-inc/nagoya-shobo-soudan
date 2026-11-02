@@ -61,8 +61,12 @@
     "TEST_EMAILS": "shun_maruoka@meher-inc.co.jp",
     // 専門家への依頼の通知。NOTIFY_TO はカンマ区切りで複数可
     "NOTIFY_FROM": "notify@meher-edge.com",
-    "NOTIFY_TO": "info@todokede.jp"
+    "NOTIFY_TO": "info@todokede.jp",
+    // 根拠の一次情報（src/watch/sources.ts）の変更を見張って NOTIFY_TO に知らせる。名古屋だけ（gen-city.py が都市版から外す）
+    "WATCH_SOURCES": "1"
   },
+  // 毎時。7日以上見ていない資料を20件ずつ取りに行き、日本時間9時の回で変更をまとめてメールする（src/worker/watch.ts）
+  "triggers": { "crons": ["0 * * * *"] },
   // Local tests without Cloudflare credentials: same bindings minus Workers AI (answers come from AI_MOCK).
   // Bindings are not inherited by environments, so D1 and the rate limiter are repeated here.
   "env": {
