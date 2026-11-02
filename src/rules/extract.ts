@@ -111,7 +111,7 @@ export function extractFacts(text: string): FilingFacts {
 export function detectScenes(text: string): Scene[] {
   const t = text.normalize("NFKC");
   const s: Scene[] = [];
-  if (/使用開始|開業|開店|オープン|入居|使い始め|営業を始め|テナントに入/.test(t)) s.push("use_start");
+  if (/使用開始|開業|開店|開設|開所|開園|オープン|入居|使い始め|営業を始め|テナントに入/.test(t)) s.push("use_start");
   if (/模様替|改装|内装工事|改修|リフォーム|用途変更|間取り|増築/.test(t)) s.push("renovation");
   if (/ポップアップ|一時的|期間限定|短期間/.test(t) && !/展示場|観覧場/.test(t)) s.push("temp_use");
   if (/厨房設備|厨房機器|フライヤー|業務用コンロ|サウナ設備|サウナを設置|サウナを置|蓄電池|ボイラー|火気使用設備|火を使う設備/.test(t)) s.push("fire_equipment");

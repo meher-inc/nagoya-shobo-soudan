@@ -107,6 +107,7 @@ def build(slug: str) -> Path:
     sub(w, '"namespace_id": "6761"', f'"namespace_id": "{ns}"')
     sub(out / "package.json", '"name": "nagoya-shobo-soudan"', f'"name": "{sid}"')
     sub(out / "src/worker/chat.ts", 'runRules("nagoya-city"', f'runRules("{JURISDICTION.get(slug, slug + "-city")}"')
+    sub(out / "src/worker/guide-pages.ts", 'const JURISDICTION = "nagoya-city"', f'const JURISDICTION = "{JURISDICTION.get(slug, slug + "-city")}"')
 
     # ドキュメント
     sub(out / "CLAUDE.md", "# 名古屋市 消防相談AI（meher-inc/service-template から作成）", f"# トドケデ AI（{ja}）（meher-inc/service-template から作成）")
