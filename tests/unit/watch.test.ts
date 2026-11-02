@@ -58,6 +58,9 @@ test("台帳: 法令4件と条例・規則のページがあり、ID が重複�
     "https://www.city.sapporo.jp/ncms/reiki/d1w_reiki_nonframe/H348901010034/H348901010034_j.html",
     "https://www.city.fukuoka.lg.jp/d1w_reiki/reiki_honbun/q003RG00000988.html",
     "https://www.city.nagoya.jp/bousai/shoubou/1013208/1013336.html",
+    "https://www1.g-reiki.net/kyoto/reiki_honbun/k102RG00000940.html",
+    "https://www.reiki.metro.tokyo.lg.jp/reiki/reiki_honbun/g101RG00002311.html",
+    "https://cgi.city.yokohama.lg.jp/somu/reiki/reiki_honbun/g202RG00001081.html",
   ])
     assert.ok(SOURCES.some((s) => s.url === url && s.kind === "page"), url);
   assert.ok(SOURCES.filter((s) => s.kind === "manual").every((s) => /legal-square/.test(s.url)));

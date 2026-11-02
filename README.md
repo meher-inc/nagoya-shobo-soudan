@@ -111,4 +111,5 @@ nagoya.todokede.jp などのサブドメインにする場合は、京都版と�
 - 種類: `egov`（e-Gov 法令API v2 の改正履歴。未施行の改正も拾う）、`page`（ページ本文の SHA-256。PDF は中身そのもの）、`manual`（Reiki-Base 検索システムのように検索フォーム経由でしか開けないもの。月の最初の月曜のメールに一覧を付ける）
 - 動き: Cron Trigger で毎時、7日以上見ていない資料を20件ずつ取得。初回は記録だけ。変わった・3回続けて取れない、を `source_events` に記録し、日本時間9時の回で `NOTIFY_TO` にまとめてメールする
 - 名古屋の Worker だけで動かす（`WATCH_SOURCES=1`。`gen-city.py` が都市版の wrangler.jsonc から外す）。src/rules は全版で同じなので1か所で足りる
-- 京都版・東京版だけが持つ根拠（京都市・東京都の条例、東京版の `src/ingest/`）は、この台帳にまだ入っていない
+- 京都市・東京都・名古屋市・横浜市の条例・規則の本文は `docs/rule-sources.md` に置く（`src/rules/filings.ts` の5管轄は cities/ に notes.md がないため）。大阪市の条例本文は未登録
+- 東京版の RAG（`src/ingest/`）は東京版の Worker が毎週日曜2時に e-Gov・東京都例規集・東京消防庁から取り直している（版が変わった資料だけ入れ替え）。こちらは判定ではなく回答の参照資料
