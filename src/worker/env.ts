@@ -29,6 +29,8 @@ export interface Env {
   EMAIL?: SendEmail;
   NOTIFY_FROM?: string;
   NOTIFY_TO?: string;
+  /** "1" で根拠の一次情報の変更を見張る（src/worker/watch.ts）。名古屋の Worker だけで有効にする */
+  WATCH_SOURCES?: string;
 }
 
 export interface User {

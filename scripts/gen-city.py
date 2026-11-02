@@ -44,7 +44,7 @@ JURISDICTION = {"zenkoku": "general"}
 # 既存のレート制限 namespace（アカウント内で重複させない）
 TAKEN = {"4101", "6761"}
 # portal/（入口）と相談件数レポート・入口の CI は名古屋のリポジトリだけに置く
-IGNORE = {"portal", "usage-report.yml", "usage-report.mjs", "portal.yml", "node_modules", ".git", "CITY_BRIEF.md", "gen-city.py", "dist", "test-results", "playwright-report", ".wrangler", ".dev.vars"}
+IGNORE = {"portal", "usage-report.yml", "usage-report.mjs", "portal.yml", "node_modules", ".git", "CITY_BRIEF.md", "gen-city.py", "build-sources.mjs", "sources.test.ts", "dist", "test-results", "playwright-report", ".wrangler", ".dev.vars"}
 
 
 def namespace_for(service_id: str) -> str:
@@ -105,6 +105,11 @@ def build(slug: str) -> Path:
     sub(w, "nagoya-shobo-soudan", sid)
     sub(w, "nagoya.todokede.jp", f"{slug}.todokede.jp")
     sub(w, '"namespace_id": "6761"', f'"namespace_id": "{ns}"')
+    # 根拠の一次情報の見張りは名古屋の Worker だけで動かす（src/rules は全版で同じなので1か所で足りる）
+    sub(w, ''',
+    // 根拠の一次情報（src/watch/sources.ts）の変更を見張って NOTIFY_TO に知らせる。名古屋だけ（gen-city.py が都市版から外す）
+    "WATCH_SOURCES": "1"''', "")
+    w.write_text(re.sub(r'\n  // 毎時。7日以上見ていない資料[^\n]*\n  "triggers": \{[^\n]*\},', "", w.read_text()))
     sub(out / "package.json", '"name": "nagoya-shobo-soudan"', f'"name": "{sid}"')
     sub(out / "src/worker/chat.ts", 'runRules("nagoya-city"', f'runRules("{JURISDICTION.get(slug, slug + "-city")}"')
     sub(out / "src/worker/guide-pages.ts", 'const JURISDICTION = "nagoya-city"', f'const JURISDICTION = "{JURISDICTION.get(slug, slug + "-city")}"')

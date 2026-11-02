@@ -11,6 +11,7 @@ import { withSharedSecrets } from "./secrets";
 import { isTestVisit, markTestUser, rememberVisit } from "./traffic";
 import { eventApi, eventTestApi, recordPageView } from "./events";
 import { guide, publishedScenarios } from "./guide";
+import { runWatch } from "./watch";
 
 const app = new Hono<AppEnv>();
 
@@ -170,5 +171,9 @@ app.get("*", async (c) => {
 export default {
   async fetch(request, env, ctx) {
     return app.fetch(request, await withSharedSecrets(env), ctx);
+  },
+  // 根拠の一次情報の見張り（wrangler.jsonc の triggers、WATCH_SOURCES=1 のときだけ動く）
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(runWatch(env, controller.scheduledTime));
   },
 } satisfies ExportedHandler<AppEnv["Bindings"]>;
