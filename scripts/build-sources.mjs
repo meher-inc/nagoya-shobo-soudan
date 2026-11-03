@@ -20,8 +20,10 @@ const LAWS = [
 
 // 自社のサイトや一次情報でないものは見張らない
 const SKIP = /todokede\.jp|meher|claude\.ai|github\.com|example\.|localhost/;
-// 検索フォーム経由でしか本文を開けない例規集（Reiki-Base 検索システム）。自動では取れないので手で確かめる
-const MANUAL = /legal-square\.com\/HAS-Shohin|SJSrbLogin\.jsf/;
+// 自動では取れないので手で確かめるもの
+// - 検索フォーム経由でしか本文を開けない例規集（Reiki-Base 検索システム）
+// - g-reiki.net（千葉・浜松・神戸・さいたま・京都・名古屋の例規集）: Worker からの取得が HTTP 403（2026-11-03、1巡目の全10件）。回避はしない
+const MANUAL = /legal-square\.com\/HAS-Shohin|SJSrbLogin\.jsf|www1\.g-reiki\.net\//;
 
 const URL_RE = /https?:\/\/[^\s|"'`<>（）()「」、。]+/g;
 

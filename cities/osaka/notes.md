@@ -7,8 +7,7 @@
 | 内容 | URL | 更新日 |
 |---|---|---|
 | 消防署・出張所一覧（24署＋水上消防署の住所・電話） | https://www.city.osaka.lg.jp/shobo/page/0000018935.html | 2025-10-13 |
-| 大阪市行政オンラインシステムによる電子申請 | https://www.city.osaka.lg.jp/shobo/page/0000570788.html | 2026-01-01 |
-| 火災予防条例関係（申請・届出用紙、オンライン申請の開始日） | https://www.city.osaka.lg.jp/shobo/page/0000049409.html | 2026-03-31 |
+| 火災予防条例関係（申請・届出用紙、オンライン申請の開始日。電子申請は大阪市行政オンラインシステムから） | https://www.city.osaka.lg.jp/shobo/page/0000049409.html | 2026-03-31（2026-11-03 確認。ここからリンクされていた「受付開始について」のページ 0000570788 は削除されていた） |
 | 火災予防条例関係詳細（根拠条文・届出時期・窓口） | https://www.city.osaka.lg.jp/shobo/page/0000049408.html | 2024-04-01 |
 | 消防局の組織一覧（予防部予防課 06-4393-6323） | https://www.city.osaka.lg.jp/shobo/soshiki_list.html | - |
 
