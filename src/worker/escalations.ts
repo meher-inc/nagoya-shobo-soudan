@@ -4,12 +4,8 @@ import { handoffLanes, type Lane } from "./escalation";
 import { SERVICE } from "../config/service";
 import { caseSheet, missingRequired, sanitize, type HearingAnswers } from "../hearing/hearing.ts";
 import { prefill } from "../hearing/prefill.ts";
+import { LANE_LABEL, receiptMail } from "./receipt.ts";
 
-const LANE_LABEL: Record<Lane, string> = {
-  gyosei: "行政書士（書類の作成・提出）",
-  setsubi: "点検・工事の手配",
-  bengoshi: "弁護士への相談案内",
-};
 
 const MAX = { name: 60, email: 254, phone: 30, note: 1000 };
 
@@ -142,5 +138,19 @@ async function notifyRequest(env: Env, id: string) {
       text: card.text,
       ...(card.replyTo ? { replyTo: card.replyTo } : {}),
     });
+  }
+  // 依頼者への受付の自動返信（メールアドレスがある依頼だけ）。返信先は窓口（NOTIFY_TO の先頭）
+  const e = await env.DB.prepare("SELECT lane, contact_name, contact_email FROM escalations WHERE id = ?")
+    .bind(id)
+    .first<{ lane: Lane; contact_name: string | null; contact_email: string | null }>();
+  if (!e?.contact_email) return;
+  const desk = env.NOTIFY_TO.split(",").map((s) => s.trim()).filter(Boolean)[0];
+  const mail = receiptMail(e.lane, SERVICE.area, e.contact_name ?? "ご依頼者");
+  try {
+    await env.EMAIL.send({ to: e.contact_email, from: { email: env.NOTIFY_FROM, name: "トドケデ AI" }, subject: mail.subject, text: mail.text, ...(desk ? { replyTo: desk } : {}) });
+    console.log("escalation_receipt_sent", id);
+  } catch (err) {
+    // 送信先の制限などで送れなくても、依頼の受付と窓口への通知は済んでいる
+    console.error("escalation_receipt_error", id, err);
   }
 }

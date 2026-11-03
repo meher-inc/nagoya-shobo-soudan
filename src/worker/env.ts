@@ -31,6 +31,15 @@ export interface Env {
   NOTIFY_TO?: string;
   /** "1" で根拠の一次情報の変更を見張る（src/worker/watch.ts）。名古屋の Worker だけで有効にする */
   WATCH_SOURCES?: string;
+  /** "1" で月曜朝に週次の利用レポートと IndexNow を送る（src/worker/weekly.ts）。名古屋の Worker だけで有効にする */
+  USAGE_REPORT?: string;
+  /** 週次レポートで数える、ほかの公開済みサイトの D1（名古屋の Worker だけが持つ） */
+  REPORT_KYOTO?: D1Database;
+  REPORT_TOKYO?: D1Database;
+  REPORT_SAPPORO?: D1Database;
+  REPORT_OSAKA?: D1Database;
+  REPORT_FUKUOKA?: D1Database;
+  REPORT_ZENKOKU?: D1Database;
 }
 
 export interface User {

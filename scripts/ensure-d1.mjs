@@ -32,4 +32,20 @@ if (id) {
 
 // Only the first (top-level, production) entry; env.mock keeps the placeholder for local tests.
 config = config.replace(`"database_id": "${PLACEHOLDER}"`, `"database_id": "${id}"`);
+
+// 週次レポート用に読むほかのサイトの D1（名古屋だけ、1行に1つ）。名前から ID を入れ、見つからないものはこのビルドから外す（作らない）
+const envAt = config.indexOf('"env": {');
+const head = envAt >= 0 ? config.slice(0, envAt) : config;
+const tail = envAt >= 0 ? config.slice(envAt) : "";
+const fixed = head.replace(/\n\s*\{ "binding": "(REPORT_[A-Z]+)", "database_name": "([^"]+)", "database_id": "0{8}-0{4}-0{4}-0{4}-0{12}" \},?/g, (line, binding, dbName) => {
+  const found = list.find((db) => db.name === dbName)?.uuid;
+  if (!found) {
+    console.log(`D1 ${dbName}: 見つからないため ${binding} を外します（週次レポートでは「D1 が未接続」と出ます）`);
+    return "";
+  }
+  console.log(`D1 ${dbName}: ${binding} に接続します (${found})`);
+  return line.replace(PLACEHOLDER, found);
+});
+// 最後の要素を外したときに残る「,」を消す
+config = fixed.replace(/\},(\s*\n\s*\])/g, "}$1") + tail;
 writeFileSync("wrangler.jsonc", config);

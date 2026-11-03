@@ -109,6 +109,11 @@ def build(slug: str) -> Path:
     sub(w, ''',
     // 根拠の一次情報（src/watch/sources.ts）の変更を見張って NOTIFY_TO に知らせる。名古屋だけ（gen-city.py が都市版から外す）
     "WATCH_SOURCES": "1"''', "")
+    # 週次レポートと IndexNow も名古屋だけ（ほかのサイトの D1 を読むため）
+    sub(w, ',\n    // 月曜の朝に週次の利用レポートと IndexNow を送る（src/worker/weekly.ts）。名古屋だけ（gen-city.py が都市版から外す）\n    "USAGE_REPORT": "1"', "")
+    wt = re.sub(r'\n    // 週次レポート（src/worker/weekly.ts）で数える[^\n]*', "", w.read_text())
+    wt = re.sub(r',?\n    \{ "binding": "REPORT_[A-Z]+"[^\n]*\}', "", wt)
+    w.write_text(wt)
     w.write_text(re.sub(r'\n  // 毎時。7日以上見ていない資料[^\n]*\n  "triggers": \{[^\n]*\},', "", w.read_text()))
     sub(out / "package.json", '"name": "nagoya-shobo-soudan"', f'"name": "{sid}"')
     sub(out / "src/worker/chat.ts", 'runRules("nagoya-city"', f'runRules("{JURISDICTION.get(slug, slug + "-city")}"')

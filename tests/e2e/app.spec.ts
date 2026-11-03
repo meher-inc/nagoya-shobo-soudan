@@ -681,3 +681,26 @@ test("よくある相談のページ（/soudan）が開け、相談画面へ戻�
   expect(sitemap).toContain("/soudan/inshokuten-kaigyo-80");
   expect((await request.get("/soudan/no-such-page", { maxRedirects: 0 })).status()).toBe(302);
 });
+
+// ---------------------------------------------------------------------------
+// 生成AI・検索エンジン向けの入口（geo.ts）と、解説ページの結論・構造化データ
+
+test("llms.txt, the IndexNow key file and the guide page conclusion are served for crawlers @local", async ({ page, request }) => {
+  const llms = await request.get("/llms.txt");
+  expect(llms.status()).toBe(200);
+  const text = await llms.text();
+  expect(text).toMatch(/^# トドケデ AI/);
+  expect(text).toContain("/soudan/inshokuten-kaigyo-80");
+  expect(await (await request.get("/robots.txt")).text()).toContain("/llms.txt");
+  const key = "7d3f2a9c4b1e4f6a8c0d2e5b9a1f3c7e";
+  expect((await (await request.get(`/${key}.txt`)).text()).trim()).toBe(key);
+  // クローラーとして開いても通常どおり返る（来訪の記録で応答を壊さない）
+  const bot = await request.get("/soudan/inshokuten-kaigyo-80", { headers: { "user-agent": "Mozilla/5.0 (compatible; GPTBot/1.2; +https://openai.com/gptbot)" } });
+  expect(bot.status()).toBe(200);
+  await page.goto("/soudan/inshokuten-kaigyo-80");
+  await expect(page.locator(".answer")).toContainText("結論:");
+  const types = await page
+    .locator('script[type="application/ld+json"]')
+    .evaluateAll((els) => els.map((e) => (JSON.parse(e.textContent ?? "{}") as { "@type"?: string })["@type"]));
+  expect(types).toEqual(expect.arrayContaining(["Article", "BreadcrumbList", "FAQPage"]));
+});

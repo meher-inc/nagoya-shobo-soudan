@@ -10,6 +10,14 @@ export const TEST_COOKIE = "tdk_test";
 const SOURCE_TTL_S = 90 * 86400;
 const TEST_TTL_S = 365 * 86400;
 
+// 生成AIの回答画面から来た人（GEO の効果を測る）。gemini.google.com は google より先に判定する
+const AI = [
+  [/(^|\.)chatgpt\.com$|(^|\.)chat\.openai\.com$/, "ai:chatgpt"],
+  [/(^|\.)perplexity\.ai$/, "ai:perplexity"],
+  [/(^|\.)claude\.ai$/, "ai:claude"],
+  [/(^|\.)gemini\.google\.com$/, "ai:gemini"],
+  [/(^|\.)copilot\.microsoft\.com$/, "ai:copilot"],
+] as const;
 const SEARCH = [
   [/(^|\.)google\./, "search:google"],
   [/(^|\.)yahoo\.co\.jp$/, "search:yahoo"],
@@ -44,7 +52,7 @@ export function classifySource(url: URL, referer: string | undefined): string {
   if (host === url.hostname) return /^\/soudan(\/|$)/.test(new URL(referer).pathname) ? "seo" : "direct";
   if (!host) return "direct";
   if (host === "ai.todokede.jp") return "portal";
-  for (const [re, name] of [...SEARCH, ...SNS]) if (re.test(host)) return name;
+  for (const [re, name] of [...AI, ...SEARCH, ...SNS]) if (re.test(host)) return name;
   if (host === "todokede.jp" || host.endsWith(".todokede.jp")) return `todokede:${host.replace(/\.?todokede\.jp$/, "") || "hub"}`;
   return clean(`ref:${host}`);
 }
