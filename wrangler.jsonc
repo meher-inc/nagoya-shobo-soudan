@@ -17,7 +17,7 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/", "/index.html", "/api/*", "/auth/*", "/legal/*", "/soudan", "/soudan/*", "/robots.txt", "/sitemap.xml"]
+    "run_worker_first": ["/", "/index.html", "/api/*", "/auth/*", "/legal/*", "/soudan", "/soudan/*", "/robots.txt", "/sitemap.xml", "/llms.txt", "/7d3f2a9c4b1e4f6a8c0d2e5b9a1f3c7e.txt"]
   },
   "d1_databases": [
     {
@@ -26,7 +26,14 @@
       "database_name": "nagoya-shobo-soudan",
       "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations"
-    }
+    },
+    // 週次レポート（src/worker/weekly.ts）で数える、ほかの公開済みサイトの D1。名古屋だけ（gen-city.py が都市版から外す）。ID は scripts/ensure-d1.mjs が名前から入れる
+    { "binding": "REPORT_KYOTO", "database_name": "kyoto-shobo-soudan", "database_id": "00000000-0000-0000-0000-000000000000" },
+    { "binding": "REPORT_TOKYO", "database_name": "shobo-soudan", "database_id": "00000000-0000-0000-0000-000000000000" },
+    { "binding": "REPORT_SAPPORO", "database_name": "sapporo-shobo-soudan", "database_id": "00000000-0000-0000-0000-000000000000" },
+    { "binding": "REPORT_OSAKA", "database_name": "osaka-shobo-soudan", "database_id": "00000000-0000-0000-0000-000000000000" },
+    { "binding": "REPORT_FUKUOKA", "database_name": "fukuoka-shobo-soudan", "database_id": "00000000-0000-0000-0000-000000000000" },
+    { "binding": "REPORT_ZENKOKU", "database_name": "zenkoku-shobo-soudan", "database_id": "00000000-0000-0000-0000-000000000000" }
   ],
   "ai": { "binding": "AI", "remote": true },
   // 専門家への依頼（エスカレーション）の通知メール（Cloudflare Email Sending。送信元ドメイン meher-edge.com は登録済み）
@@ -63,9 +70,11 @@
     "NOTIFY_FROM": "notify@meher-edge.com",
     "NOTIFY_TO": "info@todokede.jp",
     // 根拠の一次情報（src/watch/sources.ts）の変更を見張って NOTIFY_TO に知らせる。名古屋だけ（gen-city.py が都市版から外す）
-    "WATCH_SOURCES": "1"
+    "WATCH_SOURCES": "1",
+    // 月曜の朝に週次の利用レポートと IndexNow を送る（src/worker/weekly.ts）。名古屋だけ（gen-city.py が都市版から外す）
+    "USAGE_REPORT": "1"
   },
-  // 毎時。7日以上見ていない資料を20件ずつ取りに行き、日本時間9時の回で変更をまとめてメールする（src/worker/watch.ts）
+  // 毎時。7日以上見ていない資料を20件ずつ取りに行き、日本時間9時の回で変更をまとめてメールする（src/worker/watch.ts）。月曜8時の回で週次レポート（weekly.ts）
   "triggers": { "crons": ["0 * * * *"] },
   // Local tests without Cloudflare credentials: same bindings minus Workers AI (answers come from AI_MOCK).
   // Bindings are not inherited by environments, so D1 and the rate limiter are repeated here.

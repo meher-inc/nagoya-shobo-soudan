@@ -12,6 +12,9 @@ import { isTestVisit, markTestUser, rememberVisit } from "./traffic";
 import { eventApi, eventTestApi, recordPageView } from "./events";
 import { guide, publishedScenarios } from "./guide";
 import { runWatch } from "./watch";
+import { recordCrawler } from "./crawlers";
+import { INDEXNOW_KEY, llmsTxt } from "./geo";
+import { runWeekly } from "./weekly";
 
 const app = new Hono<AppEnv>();
 
@@ -28,6 +31,8 @@ app.use("*", async (c, next) => {
 });
 
 app.use("*", async (c, next) => {
+  // 検索エンジンと生成AIのクローラーの来訪を数える（crawlers.ts）
+  recordCrawler(c);
   c.set("user", c.req.path.startsWith("/api/stripe/") ? null : await loadUser(c));
   // ?test=1 の端末から使われた利用者は試験に切り替える（相談件数から除く）
   if (!c.req.path.startsWith("/api/stripe/")) await markTestUser(c, c.get("user"));
@@ -118,8 +123,17 @@ app.route("/", guide);
 
 app.get("/robots.txt", (c) => {
   const origin = c.env.CANONICAL_ORIGIN ?? new URL(c.req.url).origin;
-  return c.text(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /auth/\n\nSitemap: ${origin}/sitemap.xml\n`);
+  return c.text(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /auth/\n\nSitemap: ${origin}/sitemap.xml\n# 生成AI向けの案内: ${origin}/llms.txt\n`);
 });
+
+// 生成AI向けのサイト案内（geo.ts）
+app.get("/llms.txt", (c) => {
+  const origin = c.env.CANONICAL_ORIGIN ?? new URL(c.req.url).origin;
+  return c.text(llmsTxt(origin), 200, { "cache-control": "public, max-age=3600" });
+});
+
+// IndexNow の鍵ファイル（geo.ts）。公開してよい値
+app.get(`/${INDEXNOW_KEY}.txt`, (c) => c.text(INDEXNOW_KEY));
 
 app.get("/sitemap.xml", (c) => {
   const origin = c.env.CANONICAL_ORIGIN ?? new URL(c.req.url).origin;
@@ -175,5 +189,7 @@ export default {
   // 根拠の一次情報の見張り（wrangler.jsonc の triggers、WATCH_SOURCES=1 のときだけ動く）
   async scheduled(controller, env, ctx) {
     ctx.waitUntil(runWatch(env, controller.scheduledTime));
+    // 週次の利用レポートと IndexNow（weekly.ts、USAGE_REPORT=1 のときだけ）
+    ctx.waitUntil(runWeekly(env, controller.scheduledTime));
   },
 } satisfies ExportedHandler<AppEnv["Bindings"]>;

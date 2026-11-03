@@ -47,10 +47,22 @@ const filingRow = (x: FilingVerdict) =>
 const installRow = (x: Verdict) =>
   `<tr><th scope="row">${esc(EQUIPMENT_LABEL[x.equipment])}</th><td class="r-${x.result}">${RESULT[x.result]}${!x.assertive && x.result === "required" ? "（原則）" : ""}</td><td>${esc(x.reason)}<div class="sub basis">根拠: ${esc(x.basis)}</div></td></tr>`;
 
-const CSS = `:root{--a:${SERVICE.theme.accent};--fg:#1f2937;--mut:#6b7280;--line:#e5e7eb}*{box-sizing:border-box}body{margin:0;background:#fff;color:var(--fg);font:16px/1.75 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}main{max-width:760px;margin:0 auto;padding:24px 16px 64px}a{color:var(--a)}h1{font-size:1.4rem;line-height:1.5;margin:.5rem 0 1rem}h2{font-size:1.1rem;margin:2rem 0 .5rem;border-left:4px solid var(--a);padding-left:.6rem}.crumb{font-size:.85rem;color:var(--mut)}.lead{background:#f9fafb;border:1px solid var(--line);border-radius:12px;padding:12px 14px}table{width:100%;border-collapse:collapse;font-size:.95rem}th,td{border-bottom:1px solid var(--line);padding:10px 6px;vertical-align:top;text-align:left}th{width:30%}td:nth-child(2){width:5.5em;font-weight:700;white-space:nowrap}.r-required{color:var(--a)}.r-conditional{color:#b45309}.r-not_required{color:var(--mut)}.sub{font-size:.85rem;color:var(--mut)}.basis{font-size:.8rem}.cv{margin:.3rem 0 0;padding-left:1.1rem;font-size:.85rem;color:var(--mut)}.cta{display:inline-block;margin-top:1.5rem;background:var(--a);color:#fff;text-decoration:none;border-radius:999px;padding:.75rem 1.4rem;font-weight:700}.note{font-size:.8rem;color:var(--mut);margin-top:2.5rem}ul.idx{padding-left:1.1rem}ul.idx li{margin:.4rem 0}@media (max-width:560px){th{width:auto;display:block;border-bottom:none;padding-bottom:0}td{display:inline-block;border-bottom:none}tr{display:block;border-bottom:1px solid var(--line);padding-bottom:6px}td:nth-child(3){display:block}}`;
+const CSS = `:root{--a:${SERVICE.theme.accent};--fg:#1f2937;--mut:#6b7280;--line:#e5e7eb}*{box-sizing:border-box}body{margin:0;background:#fff;color:var(--fg);font:16px/1.75 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}main{max-width:760px;margin:0 auto;padding:24px 16px 64px}a{color:var(--a)}h1{font-size:1.4rem;line-height:1.5;margin:.5rem 0 1rem}h2{font-size:1.1rem;margin:2rem 0 .5rem;border-left:4px solid var(--a);padding-left:.6rem}.crumb{font-size:.85rem;color:var(--mut)}.answer{border:2px solid var(--a);border-radius:12px;padding:12px 14px}.lead{background:#f9fafb;border:1px solid var(--line);border-radius:12px;padding:12px 14px}table{width:100%;border-collapse:collapse;font-size:.95rem}th,td{border-bottom:1px solid var(--line);padding:10px 6px;vertical-align:top;text-align:left}th{width:30%}td:nth-child(2){width:5.5em;font-weight:700;white-space:nowrap}.r-required{color:var(--a)}.r-conditional{color:#b45309}.r-not_required{color:var(--mut)}.sub{font-size:.85rem;color:var(--mut)}.basis{font-size:.8rem}.cv{margin:.3rem 0 0;padding-left:1.1rem;font-size:.85rem;color:var(--mut)}.cta{display:inline-block;margin-top:1.5rem;background:var(--a);color:#fff;text-decoration:none;border-radius:999px;padding:.75rem 1.4rem;font-weight:700}.note{font-size:.8rem;color:var(--mut);margin-top:2.5rem}ul.idx{padding-left:1.1rem}ul.idx li{margin:.4rem 0}@media (max-width:560px){th{width:auto;display:block;border-bottom:none;padding-bottom:0}td{display:inline-block;border-bottom:none}tr{display:block;border-bottom:1px solid var(--line);padding-bottom:6px}td:nth-child(3){display:block}}`;
 
 function layout(origin: string, path: string, title: string, description: string, body: string, jsonLd: object[], gsc?: string) {
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}｜${esc(SERVICE.name)}</title><meta name="description" content="${esc(description)}"><link rel="canonical" href="${origin}${path}"><link rel="icon" href="/icon.svg">${gsc ? `<meta name="google-site-verification" content="${esc(gsc)}">` : ""}<style>${CSS}</style>${jsonLd.map((j) => `<script type="application/ld+json">${JSON.stringify(j).replace(/</g, "\\u003c")}</script>`).join("")}</head><body><main>${body}<p class="note">${esc(NOT_OFFICIAL)}。この結果は、上の条件を消防法令と${esc(AREA === "全国" ? "条文を確認済みの政令指定都市などの火災予防条例" : `${AREA}の火災予防条例`)}に当てはめた目安です。総務省令の除外・特例は含まず、最終的な判断は所轄の消防署が行います。</p></main></body></html>`;
+}
+
+/** 引用されやすい1文の結論（GEO）。判定結果だけから作る */
+export function conclusion(r: RulesResult): string {
+  const req = r.filings.filter((x) => x.result === "required");
+  const cond = r.filings.filter((x) => x.result === "conditional");
+  const inst = r.install.filter((x) => x.result === "required");
+  const parts: string[] = [];
+  if (req.length) parts.push(`届出は${req.map((x) => `${x.title}${x.deadline ? `（${x.deadline}）` : ""}`).join("、")}が必要です`);
+  if (cond.length) parts.push(`${cond.map((x) => x.title).join("、")}は条件次第です`);
+  if (inst.length) parts.push(`${inst.map((x) => EQUIPMENT_LABEL[x.equipment]).join("、")}が必要です`);
+  return parts.length ? `${parts.join("。")}。` : "";
 }
 
 export function renderScenario(origin: string, s: Scenario, r: RulesResult, gsc?: string) {
@@ -60,11 +72,37 @@ export function renderScenario(origin: string, s: Scenario, r: RulesResult, gsc?
   const install = r.install.filter((x) => x.result === "required");
   const description = `${s.lead}の場合に必要な消防の届出${filings.length ? `（${filings.slice(0, 3).map((x) => x.title).join("・")}など）` : ""}と消防用設備等を、条文に当てはめて整理しました。`;
   const others = SCENARIOS.filter((x) => x.slug !== s.slug).slice(0, 5);
-  const body = `<p class="crumb"><a href="/">${esc(SERVICE.shortName)}</a> › <a href="/soudan">よくある相談</a></p><h1>${esc(title)}</h1><p class="lead">条件: ${esc(s.lead)}</p>${
+  const summary = conclusion(r);
+  const url = `${origin}/soudan/${s.slug}`;
+  const body = `<p class="crumb"><a href="/">${esc(SERVICE.shortName)}</a> › <a href="/soudan">よくある相談</a></p><h1>${esc(title)}</h1><p class="lead">条件: ${esc(s.lead)}</p>${summary ? `<p class="answer"><strong>結論:</strong> ${esc(summary)}</p>` : ""}${
     filings.length ? `<h2>届出</h2><table>${filings.map(filingRow).join("")}</table>` : ""
   }${install.length ? `<h2>消防用設備等・防火管理者</h2><table>${install.map(installRow).join("")}</table>` : ""}<a class="cta" href="/?utm_source=guide&amp;utm_content=${esc(s.slug)}">条件を変えて相談する</a><h2>ほかの相談</h2><ul class="idx">${others.map((o) => `<li><a href="/soudan/${o.slug}">${esc(o.title)}</a></li>`).join("")}</ul>`;
   const jsonLd = [
-    { "@context": "https://schema.org", "@type": "Article", headline: title, description, inLanguage: "ja", mainEntityOfPage: `${origin}/soudan/${s.slug}`, publisher: { "@type": "Organization", name: SERVICE.seller.name, url: "https://meher-inc.co.jp/" } },
+    { "@context": "https://schema.org", "@type": "Article", headline: title, description, inLanguage: "ja", mainEntityOfPage: url, publisher: { "@type": "Organization", name: SERVICE.seller.name, url: "https://meher-inc.co.jp/" } },
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: SERVICE.shortName, item: `${origin}/` },
+        { "@type": "ListItem", position: 2, name: "よくある相談", item: `${origin}/soudan` },
+        { "@type": "ListItem", position: 3, name: title, item: url },
+      ],
+    },
+    ...(summary
+      ? [
+          {
+            "@context": "https://schema.org",
+            "@type": "FAQPage",
+            mainEntity: [
+              {
+                "@type": "Question",
+                name: `${s.lead}の場合、消防の届出と設備は何が必要ですか？`,
+                acceptedAnswer: { "@type": "Answer", text: `${summary}根拠: ${[...filings.map((x) => x.basis), ...install.map((x) => x.basis)].filter(Boolean).join("、")}。最終的な判断は所轄の消防署が行います。` },
+              },
+            ],
+          },
+        ]
+      : []),
   ];
   return layout(origin, `/soudan/${s.slug}`, title, description, body, jsonLd, gsc);
 }
