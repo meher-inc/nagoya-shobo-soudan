@@ -18,7 +18,7 @@
 | 自衛消防訓練等実施通知書 | https://www.city.sakai.lg.jp/kurashi/bosai/shobo/shinsei/kunren/jieisyouboukunnrenn.html | 2025-09-09 |
 | 消防協力事業所（管轄が「堺市、高石市、大阪狭山市」と明記） | https://www.city.sakai.lg.jp/kurashi/bosai/shobo/shinsei/kunren/31246520210323105340299.html | 2026-04-01 |
 | 堺市市勢概要（消防）高石市・大阪狭山市の受託の経緯 | https://www.city.sakai.lg.jp/shigikai/koho/gikai_hakkoshiryo/04shiseigaiyo.files/04-11shobo1.pdf | 令和3年度版 |
-| 大阪狭山市 報道資料（消防事務の委託に関する規約、施行日 令和3年4月1日） | https://www.city.osakasayama.osaka.jp/material/files/group/4/press0238.pdf | 令和2年10月 |
+| 大阪狭山市 報道資料（消防事務の委託に関する規約、施行日 令和3年4月1日） | 2026-11-03 に削除を確認（HTTP 404）。受託は堺市火災予防条例の附則と市勢概要で確認できる | 令和2年10月 |
 
 ## 市外の管轄（高石市・大阪狭山市）
 

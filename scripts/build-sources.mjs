@@ -1,5 +1,5 @@
 // 判定・回答の根拠にした一次情報の台帳（src/watch/sources.ts）を作る。
-// 集める場所: cities/*/notes.md、src/config/prompt.ts、src/rules/**/*.ts のコメントにある URL と、下の LAWS（e-Gov の法令ID）。
+// 集める場所: cities/*/notes.md、docs/rule-sources.md（京都・東京・名古屋・大阪・横浜）、src/config/prompt.ts、src/rules/**/*.ts のコメントにある URL と、下の LAWS（e-Gov の法令ID）。
 // 使い方: node scripts/build-sources.mjs        台帳を書き直す
 //         node scripts/build-sources.mjs --check 台帳が最新でなければ失敗する（単体テストから呼ぶ）
 // 新しい根拠を足したら（notes.md や src/rules のコメントに URL を書いたら）このスクリプトを実行してコミットする。
@@ -20,8 +20,10 @@ const LAWS = [
 
 // 自社のサイトや一次情報でないものは見張らない
 const SKIP = /todokede\.jp|meher|claude\.ai|github\.com|example\.|localhost/;
-// 検索フォーム経由でしか本文を開けない例規集（Reiki-Base 検索システム）。自動では取れないので手で確かめる
-const MANUAL = /legal-square\.com\/HAS-Shohin|SJSrbLogin\.jsf/;
+// 自動では取れないので手で確かめるもの
+// - 検索フォーム経由でしか本文を開けない例規集（Reiki-Base 検索システム）
+// - g-reiki.net（千葉・浜松・神戸・さいたま・京都・名古屋の例規集）: Worker からの取得が HTTP 403（2026-11-03、1巡目の全10件）。回避はしない
+const MANUAL = /legal-square\.com\/HAS-Shohin|SJSrbLogin\.jsf|www1\.g-reiki\.net\//;
 
 const URL_RE = /https?:\/\/[^\s|"'`<>（）()「」、。]+/g;
 
@@ -58,6 +60,7 @@ function jurisdictionOf(file) {
 function collect() {
   const files = [
     ...walk(join(ROOT, "cities")).filter((f) => f.endsWith("notes.md")),
+    join(ROOT, "docs/rule-sources.md"),
     join(ROOT, "src/config/prompt.ts"),
     ...walk(join(ROOT, "src/rules")).filter((f) => f.endsWith(".ts")),
   ].sort();
@@ -72,9 +75,12 @@ function collect() {
         const url = raw.replace(/[.,;:]+$/, "");
         if (SKIP.test(url)) continue;
         // 表の行は1列目、それ以外は同じ行の文。URL だけの行は直前の行を名前にする
-        let title = line.trim().startsWith("|") ? clean(line.split("|")[1] ?? "") : clean(line);
+        // docs/rule-sources.md は「| 地域 | 資料 | URL | 確認 |」の表
+        const ruleTable = file.endsWith("docs/rule-sources.md") && line.trim().startsWith("|");
+        const cells = line.split("|").map((c) => c.trim());
+        let title = ruleTable ? clean(cells[2] ?? "") : line.trim().startsWith("|") ? clean(cells[1] ?? "") : clean(line);
         if (!title && i > 0) title = clean(lines[i - 1]);
-        const j = jurisdictionOf(file);
+        const j = ruleTable ? cells[1] : jurisdictionOf(file);
         const cur = byUrl.get(url);
         if (cur) {
           if (!cur.jurisdictions.includes(j)) cur.jurisdictions.push(j);

@@ -54,13 +54,17 @@ test("台帳: 法令4件と条例・規則のページがあり、ID が重複�
   assert.equal(new Set(SOURCES.map((s) => s.url)).size, SOURCES.length);
   assert.deepEqual(SOURCES.filter((s) => s.kind === "egov").map((s) => s.title), ["消防法", "消防法施行令", "消防法施行規則", "危険物の規制に関する政令"]);
   for (const url of [
-    "https://www1.g-reiki.net/chiba/reiki_honbun/g002RG00000705.html",
     "https://www.city.sapporo.jp/ncms/reiki/d1w_reiki_nonframe/H348901010034/H348901010034_j.html",
     "https://www.city.fukuoka.lg.jp/d1w_reiki/reiki_honbun/q003RG00000988.html",
     "https://www.city.nagoya.jp/bousai/shoubou/1013208/1013336.html",
+    "https://www.reiki.metro.tokyo.lg.jp/reiki/reiki_honbun/g101RG00002311.html",
+    "https://cgi.city.yokohama.lg.jp/somu/reiki/reiki_honbun/g202RG00001081.html",
   ])
     assert.ok(SOURCES.some((s) => s.url === url && s.kind === "page"), url);
-  assert.ok(SOURCES.filter((s) => s.kind === "manual").every((s) => /legal-square/.test(s.url)));
+  // g-reiki.net は Worker からの取得が 403 なので手で確かめる（scripts/build-sources.mjs の MANUAL）
+  for (const url of ["https://www1.g-reiki.net/chiba/reiki_honbun/g002RG00000705.html", "https://www1.g-reiki.net/kyoto/reiki_honbun/k102RG00000940.html"])
+    assert.ok(SOURCES.some((s) => s.url === url && s.kind === "manual"), url);
+  assert.ok(SOURCES.filter((s) => s.kind === "manual").every((s) => /legal-square|g-reiki\.net/.test(s.url)));
   assert.ok(SOURCES.every((s) => !/todokede\.jp/.test(s.url)));
 });
 

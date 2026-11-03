@@ -9,8 +9,7 @@
 | 例規集の分野別一覧（消防） | https://www.city.sapporo.jp/ncms/reiki/d1w_reiki_nonframe/bunya_01400000030000.html | |
 | 火災予防条例等の改正概要 | https://www.city.sapporo.jp/shobo/yobo/jorei/kaisei.html | 2024-10-04 更新 |
 | 防火対象物使用開始(内容変更)届出書 | https://www.city.sapporo.jp/shobo/yobo/densisinsei/shiyou.html | 2026-03-23 更新 |
-| 炉・厨房設備等設置(変更)届出書【電子申請】 | https://www.city.sapporo.jp/shobo/yobo/densisinsei/ro.html | 2025-01-08 更新 |
-| 露店等の開設届出書【電子申請】 | https://www.city.sapporo.jp/shobo/yobo/densisinsei/rotenn.html | 2025-01-08 更新 |
+| 【消防局】申請書・届出書（届出ごとの電子申請＝札幌市スマート申請への入口。炉・厨房設備等、揚煙等、煙火、催物、露店等、指定可燃物、少量危険物、断水・減水） | https://www.city.sapporo.jp/shobo/yoshiki/top.html | 2026-10-15 更新（2026-11-03 確認。以前の densisinsei/ro.html・rotenn.html は削除された） |
 | 火災予防関係手続の方法の変更（提出部数） | https://www.city.sapporo.jp/shobo/yobo/todokedebusu.html | 2024-10-04 更新 |
 | 消防局・消防署（所）一覧 | https://www.city.sapporo.jp/shobo/shokai/about/renraku/renrakul.html | 2026-04-07 更新 |
 
@@ -38,7 +37,7 @@
 
 - 使用開始届が「規模にかかわらず必要」かどうか: 条例第64条は「令別表第1に掲げる防火対象物を使用しようとする者」とだけ書いていて、(19)項・(20)項の除外や規模の基準はない。判定は required にしたが、(19)項・(20)項の扱いは所轄に確認が要る。
 - 一時的な物品販売など（temp_use）: 札幌市の条例に一時使用の届出の条はない。催物（第67条第3号）に当たるかは所轄の判断なので conditional。
-- 区ごとの電子申請ページの URL: 案内ページに「区のリンク」はあるが、リンク先（外部の申請システム）の URL は確認していない。
+- 電子申請は札幌市スマート申請（Graffer）。届出ごとに市で1つの申請ページがある（2026-11-03 に炉・厨房設備等のページで確認）。以前の区ごとの案内は削除された。
 - 各消防署の住所: 一覧ページは丁目まで（番地なし）の掲載。番地は書いていない。
 - 各消防署の管轄: 一覧ページに管轄区の記載はない。署名と区名が一致する10区10署なので ward は区名とした。区の境界付近の建物の扱いは未確認。
 - 期限が「あらかじめ」の届出に、内部の運用で日数の目安があるか（規程・指導指針）は見ていない。「札幌市火災予防条例の解説・指導指針」（https://www.city.sapporo.jp/shobo/yobo/jorei/jyoreikaisetsu.html）は未確認。
