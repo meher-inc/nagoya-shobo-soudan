@@ -50,3 +50,18 @@ test("画面の文（回答の下のボタンと重なる文を除いた後）�
   assert.equal(checkScreen(answer, actions, stripEchoes).noCheck, 1);
   assert.equal(checkScreen(`消火器が必要になる目安です。\n\n${OK_END}`, actions, stripEchoes).noCheck, 0);
 });
+
+test("義務の言い方の言い切りも数える（レビュー L-11）", () => {
+  for (const s of [
+    "消火器の設置は必須です。",
+    "使用開始の7日前までに届け出なければなりません。",
+    "誘導灯を設置しなければいけません。",
+    "防火管理者の選任義務があります（令第1条の2）。",
+    "**消火器が必要です。**",
+    "- 消火器: 必要です",
+  ])
+    assert.equal(check(`${s}\n${OK_END}`).bare, 1, s);
+  // 目安・場合の付いたものは数えない
+  for (const s of ["収容人員が30人以上の場合は、防火管理者の選任義務があります。", "延べ80㎡の飲食店にあたるため、消火器の設置が必須となる目安です。"])
+    assert.equal(check(`${s}\n${OK_END}`).bare, 0, s);
+});
