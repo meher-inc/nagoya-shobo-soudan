@@ -136,8 +136,6 @@ test("design: white base, glass surfaces and the service accent colour", async (
 });
 
 test("design: messages, chips and sheets animate in @local", async ({ page }) => {
-  // ほかのテストは動きを止めて回す（playwright.config.ts）。ここでは動きがあることを確かめる
-  await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto("/");
   const anim = (sel: string) => page.locator(sel).first().evaluate((el) => getComputedStyle(el).animationName);
   expect(await anim(".chip")).toBe("chipIn");
@@ -460,6 +458,8 @@ test("home page carries search metadata without visible copy", async ({ page, re
 
 
 test("a request to draft a filing is answered as information and handed to a gyoseishoshi only with consent @local", async ({ page, request }) => {
+  // iPhone 版 WebKit の CI で、出現の動きの途中のチップが「動いている」と判定され続けて押せないことがあった。動きを止めて操作の流れを確かめる
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   const reply = await ask(page, "防火対象物使用開始届を作成してほしいです");
   const card = reply.getByTestId("handoff-card");
@@ -500,6 +500,8 @@ test("a request to draft a filing is answered as information and handed to a gyo
 });
 
 test("行政書士への依頼は、届出の種類ごとに一度で聞き、資料の持ち主に送る依頼文を作り、案件シートに入れる @local", async ({ page, request }) => {
+  // iPhone 版 WebKit の CI で、出現の動きの途中のチップが「動いている」と判定され続けて押せないことがあった。動きを止めて操作の流れを確かめる
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   const reply = await ask(page, "名古屋駅前のビルの7階に事務所を移転します。消防計画を作成してほしいです");
   await reply.getByTestId("handoff-card").getByTestId("handoff-open").click();
@@ -556,6 +558,7 @@ test("行政書士への依頼は、届出の種類ごとに一度で聞き、�
 });
 
 test("普通の相談の回答の下に「自分で作る」と「行政書士に依頼する」を出し、依頼を押すと依頼カードが開いて受付まで進む（F-26） @local", async ({ page, request }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   const reply = await ask(page, "防火管理者は必要ですか？");
   // 相談文からは引き継ぎを検知しない普通の相談
@@ -600,6 +603,7 @@ test("普通の相談の回答の下に「自分で作る」と「行政書士�
 });
 
 test("匿名で依頼を送ってから Google でログインしても、開き直すと受付済みのカードが残り、同じ相談をもう一度依頼できない（N-1） @local", async ({ page, request }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   const reply = await ask(page, "防火管理者は必要ですか？");
   await reply.getByTestId("action-request").click();
@@ -635,6 +639,7 @@ test.describe(() => {
   // WebKit では Service Worker が制御するページの通信を page.route で差し替えられないことがあるので、このテストでは止める
   test.use({ serviceWorkers: "block" });
 test("送信に失敗した後、画面に残る1つ前の回答の下で押すと、その回答の相談の依頼になる（N-2） @local", async ({ page, request }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   const first = await ask(page, "防火管理者は必要ですか？");
   // 2つ目の相談は画面には失敗（503）として届く。画面は相談文と回答を消して入力欄に文を戻し、1つ前の回答が最後に戻る
@@ -692,6 +697,7 @@ test("緊急時と弁護士の案内の回答には「自分で作る」「行�
 });
 
 test("点検・工事のカードが出た回答で依頼を押しても、両方のカードがその場でも開き直しても残る（F-26 fixrules R4） @local", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   const reply = await ask(page, "消火器の点検をお願いしたい");
   await expect(reply.locator(".handoff.lane-setsubi")).toHaveCount(1);
