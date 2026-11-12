@@ -80,9 +80,10 @@ test.describe(() => {
       const nav = await page.evaluate(() => {
         const n = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming;
         const res = performance.getEntriesByType("resource").map((r) => `${r.name.replace(location.origin, "")}:${Math.round(r.startTime)}-${Math.round((r as PerformanceResourceTiming).responseEnd)}`);
-        return { ttfb: Math.round(n.responseStart), html: Math.round(n.responseEnd), interactive: Math.round(n.domInteractive), load: Math.round(n.loadEventEnd), res };
+        return { origin: Math.round(performance.timeOrigin), ttfb: Math.round(n.responseStart), html: Math.round(n.responseEnd), interactive: Math.round(n.domInteractive), load: Math.round(n.loadEventEnd), res };
       });
-      console.log(`[skel] ${test.info().project.name} cold total=${total}ms ${JSON.stringify(nav)}`);
+      const visible = await page.evaluate(() => (window as unknown as { __shown?: number }).__shown ?? -1);
+      console.log(`[skel] ${test.info().project.name} cold total=${total}ms spawn=${nav.origin - start}ms shown=${visible} ${JSON.stringify(nav)}`);
       const p2 = await page.context().newPage();
       const s2 = Date.now();
       await p2.goto("/");
