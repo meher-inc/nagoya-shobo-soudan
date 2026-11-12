@@ -52,7 +52,7 @@ jobs:
 
   # iPhone 15（WebKit）の E2E。Linux の WebKit は GPU なしで描画し、ガラスの面（backdrop-filter）が十数枚あると
   # 1フレームに1〜2秒、層の作り直しに十数秒〜数分かかって時間切れになった（plan 20261112-webkit-e2e-stability）。
-  # macOS の WebKit は Safari と同じ描画の仕組みで動く
+  # macOS の WebKit は Safari と同じ Core Animation で描画し、同じ操作が数秒で終わる
   test-webkit:
     runs-on: macos-latest
     timeout-minutes: 30

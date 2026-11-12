@@ -1,7 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { WARD_STATIONS } from "../../src/worker/actions";
 import { SERVICE } from "../../src/config/service";
-import { installDiag } from "./diag";
 
 const uniqueEmail = (tag: string) => `${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}@example.com`;
 
@@ -28,8 +27,7 @@ async function events(page: Page, name: string, prop?: string): Promise<{ total:
 
 const testIp = () => `198.51.100.${Math.floor(Math.random() * 250)}-${Date.now()}`;
 
-test.beforeEach(async ({ page, context }, info) => {
-  await installDiag(page, info);
+test.beforeEach(async ({ page, context }) => {
   // Each test acts as its own client so the per-IP anonymous trial limit does not interfere.
   await context.setExtraHTTPHeaders({ "x-test-ip": testIp() });
   const errors: string[] = [];
