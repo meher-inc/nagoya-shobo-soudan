@@ -74,7 +74,24 @@ test.describe(() => {
     expect(box!.height).toBeGreaterThanOrEqual(viewport.height - 1);
     await expect(page.getByTestId("composer-input")).toBeVisible();
     await expect(page.getByTestId("skeleton")).toHaveCount(0);
-    expect(Date.now() - start).toBeLessThan(5000);
+    // 一時的な計測（plan 20261112-webkit-e2e-stability）。マージ前に外す
+    const total = Date.now() - start;
+    {
+      const nav = await page.evaluate(() => {
+        const n = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming;
+        const res = performance.getEntriesByType("resource").map((r) => `${r.name.replace(location.origin, "")}:${Math.round(r.startTime)}-${Math.round((r as PerformanceResourceTiming).responseEnd)}`);
+        return { ttfb: Math.round(n.responseStart), html: Math.round(n.responseEnd), interactive: Math.round(n.domInteractive), load: Math.round(n.loadEventEnd), res };
+      });
+      console.log(`[skel] ${test.info().project.name} cold total=${total}ms ${JSON.stringify(nav)}`);
+      const p2 = await page.context().newPage();
+      const s2 = Date.now();
+      await p2.goto("/");
+      await expect(p2.getByTestId("composer-input")).toBeVisible();
+      await expect(p2.getByTestId("skeleton")).toHaveCount(0);
+      console.log(`[skel] ${test.info().project.name} warm total=${Date.now() - s2}ms`);
+      await p2.close();
+    }
+    expect(total).toBeLessThan(5000);
     await expect(page.getByTestId("composer-input")).toBeFocused();
     await expect(page.getByRole("button", { name: SERVICE.suggestions[0] })).toBeVisible();
   });
