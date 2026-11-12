@@ -48,7 +48,7 @@ export default defineConfig({
   projects: [
     { name: "mobile-chrome", use: { ...devices["Pixel 7"], ...chromium } },
     // WebKit is not available from CHROMIUM_PATH; it always runs in CI.
-    ...(chromiumPath ? [] : [{ name: "mobile-safari", use: { ...devices["iPhone 15"] } }]),
+    ...(chromiumPath ? [] : [{ name: "mobile-safari", use: { ...devices["iPhone 15"], headless: !process.env.WEBKIT_HEADED } }]),
     { name: "desktop-chrome", use: { ...devices["Desktop Chrome"], ...chromium } },
   ],
   webServer: remote
