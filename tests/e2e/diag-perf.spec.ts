@@ -76,3 +76,26 @@ test("diag perf dpr1 @local", async ({ browser, baseURL }) => {
   await measure(page, "dpr1 sheet");
   await ctx.close();
 });
+
+// :278 の `TypeError: Load failed` の出どころの確認。回答の後の /api/me を遅らせ、その間に画面を移る
+test("diag load-failed on navigation @local", async ({ page }) => {
+  test.skip(test.info().project.name !== "mobile-safari" && !process.env.DIAG_ANY, "WebKit only");
+  await page.context().setExtraHTTPHeaders({ "x-test-ip": `198.51.100.9-${Date.now()}` });
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(`pageerror:${e.name}:${e.message}`));
+  page.on("console", (m) => m.type() === "error" && errors.push(`console:${m.text()}`));
+  page.on("requestfailed", (r) => console.log(`[perf] requestfailed ${r.url()} ${r.failure()?.errorText}`));
+  await page.goto("/");
+  let slow = false;
+  await page.route("**/api/me", async (route) => {
+    if (slow) await new Promise((r) => setTimeout(r, 3000));
+    await route.continue().catch(() => {});
+  });
+  slow = true;
+  await page.getByTestId("composer-input").fill("引き継ぎの確認");
+  await page.getByTestId("send-button").click();
+  await expect(page.getByTestId("msg-assistant").last().getByRole("button", { name: "コピー" })).toBeVisible({ timeout: 120_000 });
+  await page.goto(`/auth/test-login?email=diag-${Date.now()}@example.com&next=/`);
+  await page.waitForTimeout(1000);
+  console.log(`[perf] load-failed errors=${JSON.stringify(errors)}`);
+});
