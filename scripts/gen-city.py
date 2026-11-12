@@ -98,6 +98,9 @@ def build(slug: str) -> Path:
         )
     else:
         s = re.sub(r'\barea: "[^"]+"', f'area: "{ja}"', s, count=1)
+    # 行政書士への依頼の受け手（C-03）。都市の service.ts に無ければ生成を止める（F-26・F-07）
+    if not re.search(r'\bgyoseiReceiver: "(要確認|あり|なし)"', s):
+        raise SystemExit(f"{slug}: service.ts に gyoseiReceiver（要確認・あり・なし）がない")
     svc.write_text(s)
 
     ns = namespace_for(sid)
