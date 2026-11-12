@@ -349,8 +349,8 @@ button.action-btn:disabled { opacity: 0.6; cursor: progress; }
 .hearing-skip { display: block; margin: 10px auto 0; min-height: 44px; padding: 8px 12px; font-size: 13px; color: var(--ink-3); text-decoration: underline; }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
-  .ambient i { animation: none; }
+  /* 短くするだけでなく止める。0.01ms でも動きは始まり、WebKit は動く要素ごとに描画の層を作り直す */
+  *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 
 

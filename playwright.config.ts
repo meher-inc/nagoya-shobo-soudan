@@ -40,6 +40,9 @@ export default defineConfig({
   use: {
     baseURL: remote ?? `http://localhost:${PORT}`,
     trace: "retain-on-failure",
+    // 動きを止めて操作の流れを確かめる。CI の WebKit（GPU なし）では、ガラスの層の上で動きが続くと1フレームに1〜2秒かかり、
+    // View Transitions の切り替えに20秒以上かかった。動きそのものは、no-preference にしたデザインのテストで確かめる
+    reducedMotion: "reduce",
     screenshot: "only-on-failure",
   },
   projects: [

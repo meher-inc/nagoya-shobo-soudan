@@ -68,6 +68,8 @@ function withTransition(fn: () => void) {
 }
 
 function addRipple(e: MouseEvent) {
+  // 動きを減らす設定では波紋を出さない（animationend が来ないので、出すと残り続ける）
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   const el = e.currentTarget as HTMLElement;
   const rect = el.getBoundingClientRect();
   const size = Math.max(rect.width, rect.height);
@@ -135,8 +137,12 @@ export function App({ initialMe }: { initialMe: Me }) {
   }
 
   async function refreshMe() {
-    const res = await fetch("/api/me");
-    if (res.ok) setMe(await res.json());
+    try {
+      const res = await fetch("/api/me");
+      if (res.ok) setMe(await res.json());
+    } catch {
+      // 回答の直後に画面を移る（ログインなど）と、この通信は中断される。移った先で読み直すので、ここでは何もしない
+    }
   }
 
   async function send(text: string) {
