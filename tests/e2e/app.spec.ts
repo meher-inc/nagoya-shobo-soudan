@@ -51,6 +51,17 @@ test.describe(() => {
   // A Service Worker serving /assets/ would bypass page.route's delay, and the skeleton could vanish before it is measured.
   test.use({ serviceWorkers: "block" });
 
+  // この時間の判定から、CI のジョブの立ち上がり（ブラウザの最初のページのプロセス、開発サーバーの最初の応答）を除く。
+  // WebKit を macOS の別ジョブにしてから、このテストがジョブの最初の操作になり、最初の10数秒だけ遅い回があった
+  // （大阪 #22 で 5.8秒。同じ回の2件目も 1.9→3.1秒）。測りたいのはアプリが読み込まれてから使えるまで
+  test.beforeAll(async ({ browser }, info) => {
+    const context = await browser.newContext({ baseURL: info.project.use.baseURL });
+    const page = await context.newPage();
+    await page.goto("/");
+    await expect(page.getByTestId("composer-input")).toBeVisible();
+    await context.close();
+  });
+
   test("full-screen skeleton is shown first, then the composer is ready immediately", async ({ page }) => {
     await page.route("**/assets/*.js", async (route) => {
       await new Promise((r) => setTimeout(r, 800));
@@ -74,25 +85,7 @@ test.describe(() => {
     expect(box!.height).toBeGreaterThanOrEqual(viewport.height - 1);
     await expect(page.getByTestId("composer-input")).toBeVisible();
     await expect(page.getByTestId("skeleton")).toHaveCount(0);
-    // 一時的な計測（plan 20261112-webkit-e2e-stability）。マージ前に外す
-    const total = Date.now() - start;
-    {
-      const nav = await page.evaluate(() => {
-        const n = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming;
-        const res = performance.getEntriesByType("resource").map((r) => `${r.name.replace(location.origin, "")}:${Math.round(r.startTime)}-${Math.round((r as PerformanceResourceTiming).responseEnd)}`);
-        return { origin: Math.round(performance.timeOrigin), ttfb: Math.round(n.responseStart), html: Math.round(n.responseEnd), interactive: Math.round(n.domInteractive), load: Math.round(n.loadEventEnd), res };
-      });
-      const visible = await page.evaluate(() => (window as unknown as { __shown?: number }).__shown ?? -1);
-      console.log(`[skel] ${test.info().project.name} cold total=${total}ms spawn=${nav.origin - start}ms shown=${visible} ${JSON.stringify(nav)}`);
-      const p2 = await page.context().newPage();
-      const s2 = Date.now();
-      await p2.goto("/");
-      await expect(p2.getByTestId("composer-input")).toBeVisible();
-      await expect(p2.getByTestId("skeleton")).toHaveCount(0);
-      console.log(`[skel] ${test.info().project.name} warm total=${Date.now() - s2}ms`);
-      await p2.close();
-    }
-    expect(total).toBeLessThan(5000);
+    expect(Date.now() - start).toBeLessThan(5000);
     await expect(page.getByTestId("composer-input")).toBeFocused();
     await expect(page.getByRole("button", { name: SERVICE.suggestions[0] })).toBeVisible();
   });
