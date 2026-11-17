@@ -20,7 +20,8 @@ export default defineConfig({
   webServer: remote
     ? undefined
     : {
-        command: `wrangler dev --port ${PORT} --var CANONICAL_ORIGIN:http://localhost:${PORT}`,
+        // 入口の画面そのものを確かめるので、転送（REDIRECT_TO）は止めて起動する
+        command: `wrangler dev --port ${PORT} --var CANONICAL_ORIGIN:http://localhost:${PORT} --var REDIRECT_TO:`,
         url: `http://localhost:${PORT}/`,
         timeout: 120_000,
         reuseExistingServer: false,

@@ -1,6 +1,7 @@
 import { CITIES, cityUrl } from "./cities";
+import { redirectTarget } from "./redirect";
 
-type Env = { ASSETS: Fetcher; CANONICAL_ORIGIN: string };
+type Env = { ASSETS: Fetcher; CANONICAL_ORIGIN: string; REDIRECT_TO?: string };
 
 const SECURITY_HEADERS: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
@@ -13,6 +14,9 @@ const SECURITY_HEADERS: Record<string, string> = {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    const to = redirectTarget(request.url, env.REDIRECT_TO);
+    if (to) return Response.redirect(to, 301);
 
     if (url.pathname === "/robots.txt") {
       return text(`User-agent: *\nAllow: /\nSitemap: ${env.CANONICAL_ORIGIN}/sitemap.xml\n`, "text/plain");
